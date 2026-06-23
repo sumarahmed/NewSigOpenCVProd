@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\StaticSignatureVerification.Core\StaticSignatureVerification.Core.csproj" />
+    <ProjectReference Include="..\StaticSignatureVerification.PdfRendering\StaticSignatureVerification.PdfRendering.csproj" />
+    <ProjectReference Include="..\StaticSignatureVerification.TotalAgilityWrapper\StaticSignatureVerification.TotalAgilityWrapper.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

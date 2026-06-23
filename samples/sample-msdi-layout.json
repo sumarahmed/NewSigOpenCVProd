@@ -1,0 +1,23 @@
+{
+  "analyzeResult": {
+    "pages": [
+      {
+        "width": 8.5,
+        "height": 11,
+        "unit": "inch",
+        "lines": [
+          {
+            "content": "Applicant Signature",
+            "polygon": [1.0, 7.2, 3.2, 7.2, 3.2, 7.45, 1.0, 7.45]
+          }
+        ],
+        "words": [
+          {
+            "content": "Signature",
+            "polygon": [2.0, 7.2, 3.2, 7.2, 3.2, 7.45, 2.0, 7.45]
+          }
+        ]
+      }
+    ]
+  }
+}

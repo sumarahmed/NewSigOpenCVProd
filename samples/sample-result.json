@@ -1,0 +1,104 @@
+{
+  "documentResultId": "generated-guid",
+  "engineVersion": "1.0.0",
+  "inputDocumentType": "Image",
+  "pdfRenderInfo": null,
+  "overallDecision": "ReviewRequired",
+  "overallConfidence": 72.4,
+  "signatureCountExpected": 1,
+  "signatureCountDetected": 1,
+  "signatureResults": [
+    {
+      "signatureId": "applicant_signature",
+      "displayName": "Applicant Signature",
+      "isMatched": true,
+      "decision": "ProbableMatch",
+      "confidence": 72.4,
+      "reviewRequired": true,
+      "signatureDetected": true,
+      "signatureQuality": "Good",
+      "bestReferenceId": "applicant_ref_1",
+      "reasoning": "The extracted signature is broadly consistent with the reference signature, but one or more comparison metrics are below the full match threshold. Human review is recommended.",
+      "detectedRegion": {
+        "pageIndex": 0,
+        "x": 100,
+        "y": 1200,
+        "width": 900,
+        "height": 300,
+        "coordinateSystem": "pixels",
+        "source": "KnownZone",
+        "anchorText": "Applicant Signature",
+        "regionConfidence": 90.0,
+        "inkDensityPercent": 6.2,
+        "candidateReason": "Known zone contained sufficient signature-like ink."
+      },
+      "candidateRegions": [],
+      "audit": {
+        "finalScore": 72.4,
+        "scoreBreakdown": {
+          "geometryScore": 80,
+          "inkDensityScore": 76,
+          "densityGridScore": 70,
+          "contourScore": 69,
+          "skeletonScore": 71,
+          "structuralSimilarityScore": 74,
+          "connectedComponentScore": 73,
+          "qualityScore": 96,
+          "qualityAdjustedScore": 72.4
+        },
+        "querySignatureMetrics": {
+          "inkPixelCount": 4200,
+          "inkDensityPercent": 6.2
+        },
+        "referenceComparisons": [
+          {
+            "referenceId": "applicant_ref_1",
+            "referenceFileName": "Customer123.png",
+            "referenceFilePath": "C:\\Temp\\SignatureVerification\\ReferenceSignatures\\applicant_signature\\Customer123.png",
+            "confidence": 72.4,
+            "geometryScore": 80,
+            "inkDensityScore": 76,
+            "densityGridScore": 70,
+            "contourScore": 69,
+            "skeletonScore": 71,
+            "structuralSimilarityScore": 74,
+            "connectedComponentScore": 73,
+            "qualityScore": 96,
+            "qualityAdjustedScore": 72.4,
+            "isBestMatch": true
+          }
+        ],
+        "thresholdsUsed": {
+          "matched": 85,
+          "probableMatch": 70,
+          "reviewRequired": 55
+        },
+        "weightsUsed": {
+          "geometryScore": 0.15,
+          "inkDensityScore": 0.2,
+          "densityGridScore": 0.2,
+          "contourScore": 0.15,
+          "skeletonScore": 0.15,
+          "structuralSimilarityScore": 0.1,
+          "connectedComponentScore": 0.05
+        },
+        "preprocessing": {
+          "deskewApplied": false,
+          "denoiseApplied": true,
+          "binarizationMethod": "Otsu",
+          "lineRemovalApplied": true,
+          "boxBorderRemovalApplied": true,
+          "whitespaceCropApplied": true,
+          "normalizedCanvasWidth": 512,
+          "normalizedCanvasHeight": 256,
+          "skeletonizationApplied": true
+        }
+      },
+      "warnings": []
+    }
+  ],
+  "warnings": [
+    "At least one signature requires human review."
+  ],
+  "errors": []
+}

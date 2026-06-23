@@ -1,0 +1,9 @@
+bin/
+obj/
+.vs/
+.dotnet/
+.templateengine/
+.nuget-packages/
+*.user
+*.suo
+TestResults/

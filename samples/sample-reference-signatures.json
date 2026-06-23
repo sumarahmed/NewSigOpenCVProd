@@ -1,0 +1,23 @@
+{
+  "referenceSets": [
+    {
+      "signatureId": "applicant_signature",
+      "displayName": "Applicant Signature",
+      "partyId": "0032",
+      "partyName": "Applicant Name",
+      "referenceSetId": "SIGNER_0032_ENGLISH",
+      "expectedSignerId": "SIGNER_0032_ENGLISH",
+      "expectedLabels": [
+        "Applicant Signature",
+        "Signature",
+        "Signed By"
+      ],
+      "referenceImages": [
+        {
+          "referenceId": "applicant_ref_1",
+          "imageBase64": "<base64-png-or-jpg-reference-signature>"
+        }
+      ]
+    }
+  ]
+}

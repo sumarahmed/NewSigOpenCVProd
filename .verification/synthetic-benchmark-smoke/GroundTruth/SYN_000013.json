@@ -1,0 +1,51 @@
+{
+  "documentId": "SYN_000013",
+  "scenario": "CleanMatch",
+  "formRoleMode": "ApplicantWitness",
+  "inputDocumentPath": "Input\\SYN_000013.png",
+  "ocrLayoutPath": "OcrLayout\\SYN_000013.layout.json",
+  "optionsPath": "GroundTruth\\SYN_000013.options.json",
+  "usesKnownZones": true,
+  "expectedSignatures": [
+    {
+      "signatureId": "applicant_signature",
+      "displayName": "Applicant Signature",
+      "expectedClass": "Accept",
+      "expectedSignerId": "SIGNER_0003_CHINESE",
+      "actualSignerId": "SIGNER_0003_CHINESE",
+      "script": "Chinese",
+      "referenceImagePaths": [
+        "ReferenceSignatures\\SIGNER_0003_CHINESE\\ref_01.png",
+        "ReferenceSignatures\\SIGNER_0003_CHINESE\\ref_02.png"
+      ],
+      "zone": {
+        "pageIndex": 0,
+        "x": 170,
+        "y": 1780,
+        "width": 610,
+        "height": 210,
+        "coordinateSystem": "pixels"
+      }
+    },
+    {
+      "signatureId": "witness_signature",
+      "displayName": "Witness Signature",
+      "expectedClass": "Accept",
+      "expectedSignerId": "SIGNER_0005_ENGLISH",
+      "actualSignerId": "SIGNER_0005_ENGLISH",
+      "script": "English",
+      "referenceImagePaths": [
+        "ReferenceSignatures\\SIGNER_0005_ENGLISH\\ref_01.png",
+        "ReferenceSignatures\\SIGNER_0005_ENGLISH\\ref_02.png"
+      ],
+      "zone": {
+        "pageIndex": 0,
+        "x": 920,
+        "y": 1780,
+        "width": 610,
+        "height": 210,
+        "coordinateSystem": "pixels"
+      }
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "documentType": "Unknown",
+  "inputDocumentType": "Auto",
+  "pageIndex": null,
+  "dpi": 300,
+  "debugOutputFolder": "C:\\Temp\\SignatureDebug",
+  "saveDebugImages": false,
+  "pdfRendering": {
+    "renderer": "GhostscriptCommandLine",
+    "ghostscriptExecutablePath": "",
+    "maxPages": 100,
+    "renderGrayscale": true,
+    "timeoutSeconds": 60
+  },
+  "thresholds": {
+    "matched": 85,
+    "probableMatch": 70,
+    "reviewRequired": 55
+  },
+  "weights": {
+    "geometryScore": 0.15,
+    "inkDensityScore": 0.2,
+    "densityGridScore": 0.2,
+    "contourScore": 0.15,
+    "skeletonScore": 0.15,
+    "structuralSimilarityScore": 0.1,
+    "connectedComponentScore": 0.05
+  },
+  "detection": {
+    "useKnownZones": true,
+    "useOcrAnchors": true,
+    "useBoxDetection": true,
+    "useInkRegionDetection": true,
+    "searchBelowLabel": true,
+    "searchRightOfLabel": true,
+    "maxCandidateRegionsPerSignature": 5,
+    "candidatePoolMultiplier": 6,
+    "minimumInkDensityPercent": 0.5,
+    "maximumInkDensityPercent": 35.0,
+    "preferLaterPages": true,
+    "laterPagePreferenceWeight": 2.5
+  },
+  "signatureRoles": {
+    "mode": "Auto",
+    "expectedRoles": []
+  },
+  "knownZones": [
+    {
+      "signatureId": "applicant_signature",
+      "pageIndex": 0,
+      "x": 100,
+      "y": 1200,
+      "width": 900,
+      "height": 300,
+      "coordinateSystem": "pixels"
+    }
+  ]
+}

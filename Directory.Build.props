@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup>
+    <BaseIntermediateOutputPath Condition="'$(BaseIntermediateOutputPath)' == ''">$([System.IO.Path]::Combine($([System.IO.Path]::GetTempPath()), 'StaticSignatureVerification', 'obj', '$(MSBuildProjectName)'))\</BaseIntermediateOutputPath>
+    <MSBuildProjectExtensionsPath>$(BaseIntermediateOutputPath)</MSBuildProjectExtensionsPath>
+    <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <UseSharedCompilation>false</UseSharedCompilation>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+</Project>
