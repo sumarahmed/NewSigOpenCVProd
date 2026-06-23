@@ -1,0 +1,42 @@
+{
+  "inputDocumentType": "Image",
+  "signatureRoles": {
+    "mode": "ApplicantWitness"
+  },
+  "thresholds": {
+    "matched": 85,
+    "probableMatch": 70,
+    "reviewRequired": 55
+  },
+  "detection": {
+    "useKnownZones": true,
+    "useOcrAnchors": false,
+    "useBoxDetection": true,
+    "useInkRegionDetection": true,
+    "maxCandidateRegionsPerSignature": 8,
+    "candidatePoolMultiplier": 8,
+    "minimumInkDensityPercent": 0.15,
+    "maximumInkDensityPercent": 60,
+    "preferLaterPages": false
+  },
+  "knownZones": [
+    {
+      "signatureId": "applicant_signature",
+      "pageIndex": 0,
+      "x": 170,
+      "y": 1780,
+      "width": 610,
+      "height": 210,
+      "coordinateSystem": "pixels"
+    },
+    {
+      "signatureId": "witness_signature",
+      "pageIndex": 0,
+      "x": 920,
+      "y": 1780,
+      "width": 610,
+      "height": 210,
+      "coordinateSystem": "pixels"
+    }
+  ]
+}

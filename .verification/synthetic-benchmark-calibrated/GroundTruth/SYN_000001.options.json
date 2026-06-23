@@ -1,0 +1,33 @@
+{
+  "inputDocumentType": "Image",
+  "signatureRoles": {
+    "mode": "ApplicantOnly"
+  },
+  "thresholds": {
+    "matched": 85,
+    "probableMatch": 70,
+    "reviewRequired": 55
+  },
+  "detection": {
+    "useKnownZones": true,
+    "useOcrAnchors": false,
+    "useBoxDetection": true,
+    "useInkRegionDetection": true,
+    "maxCandidateRegionsPerSignature": 8,
+    "candidatePoolMultiplier": 8,
+    "minimumInkDensityPercent": 0.15,
+    "maximumInkDensityPercent": 60,
+    "preferLaterPages": false
+  },
+  "knownZones": [
+    {
+      "signatureId": "applicant_signature",
+      "pageIndex": 0,
+      "x": 360,
+      "y": 1780,
+      "width": 980,
+      "height": 220,
+      "coordinateSystem": "pixels"
+    }
+  ]
+}

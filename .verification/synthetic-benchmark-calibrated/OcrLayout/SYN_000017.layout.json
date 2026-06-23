@@ -1,0 +1,40 @@
+{
+  "analyzeResult": {
+    "pages": [
+      {
+        "pageNumber": 1,
+        "width": 1700,
+        "height": 2200,
+        "unit": "pixel",
+        "lines": [
+          {
+            "content": "Applicant Signature",
+            "polygon": [
+              170,
+              1732,
+              530,
+              1732,
+              530,
+              1765,
+              170,
+              1765
+            ]
+          },
+          {
+            "content": "Witness Signature",
+            "polygon": [
+              920,
+              1732,
+              1280,
+              1732,
+              1280,
+              1765,
+              920,
+              1765
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
