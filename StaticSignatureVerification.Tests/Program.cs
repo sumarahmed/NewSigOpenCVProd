@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using OpenCvSharp;
 using StaticSignatureVerification.Core;
+using StaticSignatureVerification.Storage;
 using StaticSignatureVerification.TotalAgilityWrapper;
 
 var tests = new List<(string Name, Action Test)>
@@ -22,7 +23,13 @@ var tests = new List<(string Name, Action Test)>
     ("Multiple signatures use separate detected regions", TestMultipleSignaturesUseSeparateDetectedRegions),
     ("Duplicate candidate regions are not reused", TestDuplicateCandidateRegionsAreNotReused),
     ("Operational audit is returned on success and error", TestOperationalAudit),
+    ("Storage mapper preserves result audit data", TestStorageMapperPreservesResultAuditData),
     ("Structured wrapper request validates TotalAgility contract", TestStructuredWrapperRequest),
+    ("Wrapper delegates to application service seam", TestWrapperDelegatesToApplicationService),
+    ("Application service returns stable JSON", TestApplicationServiceReturnsStableJson),
+    ("Engine logs sanitized internal errors", TestEngineLogsSanitizedInternalErrors),
+    ("Detection profile controls candidate scoring", TestDetectionProfileControlsCandidateScoring),
+    ("Shared JSON options use stable camelCase contract", TestSharedJsonOptionsStableContract),
     ("Wrapper supports concurrent verification calls", TestConcurrentWrapperCalls),
     ("Wrapper performance smoke test stays within budget", TestPerformanceSmokeBudget)
 };
@@ -559,6 +566,147 @@ static void TestStructuredWrapperRequest()
     AssertEqual("ta-bad", invalidDoc.RootElement.GetProperty("operationalAudit").GetProperty("correlationId").GetString());
 }
 
+static void TestStorageMapperPreservesResultAuditData()
+{
+    using var page = CreateSignatureImage(420, 160);
+    Cv2.ImEncode(".png", page, out var pageBytes);
+    var optionsJson = """
+    {
+      "correlationId": "db-map-1",
+      "inputDocumentType": "Image",
+      "saveDebugImages": true,
+      "debugOutputFolder": "C:\\Temp\\SignatureVerification\\MapperTest\\debug",
+      "knownZones": [
+        {
+          "signatureId": "applicant_signature",
+          "pageIndex": 0,
+          "x": 0,
+          "y": 0,
+          "width": 420,
+          "height": 160,
+          "coordinateSystem": "pixels"
+        }
+      ],
+      "detection": {
+        "useKnownZones": true,
+        "useOcrAnchors": false,
+        "useBoxDetection": false,
+        "useInkRegionDetection": false
+      }
+    }
+    """;
+
+    var wrapper = new SignatureVerificationWrapper();
+    var json = wrapper.VerifySignatures(Convert.ToBase64String(pageBytes), string.Empty, SampleReferences(CreateSignatureBase64()), optionsJson);
+    var record = JsonVerificationResultMapper.FromJson(
+        json,
+        documentName: "MapperTest",
+        sourceDocumentPath: @"C:\Temp\SignatureVerification\Input\MapperTest.png",
+        resultPath: @"C:\Temp\SignatureVerification\Output\MapperTest\result.json");
+
+    AssertEqual("db-map-1", record.CorrelationId);
+    AssertEqual("MapperTest", record.DocumentName);
+    AssertEqual(1, record.SignatureCases.Count);
+    AssertEqual(record.DocumentResultId, record.SignatureCases[0].DocumentResultId);
+    AssertTrue(record.ResultJson.Length > 1000, "Expected full result JSON.");
+    AssertTrue(record.SignatureCases[0].SignatureResultJson.Length > 100, "Expected signature result JSON.");
+    AssertTrue(record.SignatureCases[0].ReferenceComparisons.Count == 1, "Expected one reference comparison.");
+    AssertEqual("synthetic_reference.png", record.SignatureCases[0].ReferenceComparisons[0].ReferenceFileName);
+}
+
+static void TestWrapperDelegatesToApplicationService()
+{
+    var fake = new FakeApplicationService();
+    var wrapper = new SignatureVerificationWrapper(fake, new FakePdfRenderer());
+    var resultJson = wrapper.VerifySignatures("doc", "", SampleReferences(CreateSignatureBase64()), "{}");
+
+    AssertTrue(fake.VerifyToJsonCalled, "Expected wrapper to delegate to application service.");
+    using var doc = JsonDocument.Parse(resultJson);
+    AssertEqual("Matched", doc.RootElement.GetProperty("overallDecision").GetString());
+}
+
+static void TestApplicationServiceReturnsStableJson()
+{
+    using var page = CreateSignatureImage(420, 160);
+    Cv2.ImEncode(".png", page, out var pageBytes);
+
+    var service = new VerificationApplicationService();
+    var json = service.VerifyToJson(new SignatureVerificationRequest(
+        Convert.ToBase64String(pageBytes),
+        string.Empty,
+        SampleReferences(CreateSignatureBase64()),
+        """{"inputDocumentType":"Image"}"""));
+
+    using var doc = JsonDocument.Parse(json);
+    AssertTrue(doc.RootElement.TryGetProperty("documentResultId", out _), "Expected camelCase public result contract.");
+    AssertTrue(doc.RootElement.TryGetProperty("operationalAudit", out _), "Expected operational audit in JSON.");
+}
+
+static void TestEngineLogsSanitizedInternalErrors()
+{
+    var logger = new InMemoryVerificationLogger();
+    var service = new VerificationApplicationService(logger: logger);
+    var imageBytes = Convert.ToBase64String(new byte[] { 1, 2, 3, 4, 5 });
+
+    var result = service.Verify(new SignatureVerificationRequest(
+        imageBytes,
+        string.Empty,
+        SampleReferences(CreateSignatureBase64()),
+        """{"inputDocumentType":"Image"}"""));
+
+    AssertEqual("Error", result.OverallDecision);
+    AssertTrue(logger.Entries.Any(e => e.Level == "Error" && e.Code == "UNSUPPORTED_IMAGE_FORMAT"), "Expected internal logger to capture sanitized decode failure.");
+}
+
+static void TestDetectionProfileControlsCandidateScoring()
+{
+    using var page = new Mat(new Size(600, 300), MatType.CV_8UC1, Scalar.White);
+    using var signature = CreateSignatureImage(260, 100);
+    using (var roi = new Mat(page, new Rect(100, 90, signature.Width, signature.Height)))
+    {
+        signature.CopyTo(roi);
+    }
+
+    var referenceSet = new ReferenceSignatureSet
+    {
+        SignatureId = "applicant_signature",
+        ExpectedLabels = new List<string> { "Applicant Signature" }
+    };
+    var options = new SignatureVerificationOptions
+    {
+        KnownZones = new List<KnownSignatureZone>
+        {
+            new()
+            {
+                SignatureId = "applicant_signature",
+                PageIndex = 0,
+                X = 80,
+                Y = 70,
+                Width = 320,
+                Height = 140,
+                CoordinateSystem = "pixels"
+            }
+        }
+    };
+
+    var defaultCandidate = new SignatureDetector().DetectCandidates(new[] { new PageImage(0, page, Array.Empty<byte>(), 300) }, referenceSet, new OcrLayout(), options).Single();
+    var lowSourceCandidate = new SignatureDetector(new DetectionProfile { KnownZoneSourceScore = 10 }).DetectCandidates(new[] { new PageImage(0, page, Array.Empty<byte>(), 300) }, referenceSet, new OcrLayout(), options).Single();
+
+    AssertTrue(defaultCandidate.Region.RegionConfidence > lowSourceCandidate.Region.RegionConfidence, "Expected profile source score to influence candidate confidence.");
+    defaultCandidate.Crop.Dispose();
+    lowSourceCandidate.Crop.Dispose();
+}
+
+static void TestSharedJsonOptionsStableContract()
+{
+    var result = ResultJsonBuilder.CreateError("test", "CODE", "message");
+    var json = JsonSerializer.Serialize(result, SignatureJsonOptions.Compact);
+    using var doc = JsonDocument.Parse(json);
+
+    AssertTrue(doc.RootElement.TryGetProperty("documentResultId", out _), "Expected camelCase documentResultId.");
+    AssertTrue(!doc.RootElement.TryGetProperty("DocumentResultId", out _), "Did not expect PascalCase JSON.");
+}
+
 static void TestConcurrentWrapperCalls()
 {
     using var page = CreateSignatureImage(420, 160);
@@ -732,4 +880,32 @@ static void AssertEqual<T>(T expected, T actual)
     {
         throw new InvalidOperationException($"Expected '{expected}' but got '{actual}'.");
     }
+}
+
+internal sealed class FakeApplicationService : IVerificationApplicationService
+{
+    public bool VerifyToJsonCalled { get; private set; }
+
+    public VerificationResult Verify(SignatureVerificationRequest request) => new()
+    {
+        DocumentResultId = "fake-result",
+        EngineVersion = "test",
+        InputDocumentType = "Image",
+        OverallDecision = "Matched",
+        OverallConfidence = 100,
+        SignatureCountExpected = 0,
+        SignatureCountDetected = 0
+    };
+
+    public string VerifyToJson(SignatureVerificationRequest request)
+    {
+        VerifyToJsonCalled = true;
+        return StaticSignatureVerificationEngine.ToJson(Verify(request));
+    }
+}
+
+internal sealed class FakePdfRenderer : IPdfPageRenderer
+{
+    public IReadOnlyList<RenderedPage> RenderPdfToImages(byte[] pdfBytes, PdfRenderOptions options) =>
+        Array.Empty<RenderedPage>();
 }

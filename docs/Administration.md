@@ -50,8 +50,59 @@ Use this section as the quick map for common administration changes.
 | Business report source/output | Reporting command `--input` and `--output` | Not used by wrapper; reports consume result JSON files | `StaticSignatureVerification.Reporting\Program.cs` |
 | Feedback tuning | Reporting command `--feedback-tune`, `--reviewer-outcomes`, `--current-options` | Exported reviewer CSV from review UI | `FeedbackTuningReport` in `StaticSignatureVerification.Reporting\Program.cs` |
 | Synthetic benchmark size | Benchmark command `--documents`, `--signers`, `--references`, `--seed` | Not applicable | `StaticSignatureVerification.Benchmark\Program.cs` |
+| Database storage mode | setup wizard `--storageMode Hybrid` or `--storageMode Database`; current value in `ssv.SystemSetting` | Use `/api/v1/verify` for hybrid requests and `/api/v1/verify-db-native` for full DB-native requests | `database\004_database_native_storage.sql`, `StaticSignatureVerification.Storage\DatabaseNativeContracts.cs` |
+| Database storage scripts | `scripts\Initialize-Database.ps1`, `scripts\Import-VerificationResultsToDatabase.ps1`, `scripts\Export-DatabaseReviewQueue.ps1` | API service uses `SIGNATURE_VERIFICATION_DB_CONNECTION` | `database\*.sql`, `StaticSignatureVerification.Storage` |
+| Runtime DB connection | `Input\database-connection.txt`, `C:\Temp\SignatureVerification\database-connection.txt`, environment variable `SIGNATURE_VERIFICATION_DB_CONNECTION`, or CLI `--databaseConnectionString` | Wrapper hosts should inject the same connection string into the configured storage adapter | `StaticSignatureVerification.Storage\SqlVerificationResultStore.cs` |
+| Runtime root folder | environment variable `SIGNATURE_VERIFICATION_ROOT`, or setup/CLI `--root` where supported | API readiness and local tools read from the shared runtime config service | `EnvironmentSignatureVerificationConfigService` in `StaticSignatureVerification.Core` |
+| Runtime storage mode override | environment variable `SIGNATURE_STORAGE_MODE`, setup wizard, or SQL `ssv.SystemSetting` depending on host | API DB-native verification requires SQL `StorageMode = Database` | `EnvironmentSignatureVerificationConfigService`, `SqlDatabaseNativeStore` |
+
+## Administrative UI
+
+The API hosts an administrative UI at:
+
+```text
+/admin
+```
+
+The UI uses the same `X-API-Key` role model as the API. Administrator keys can change storage mode and retention policies. Auditor/reviewer/reference approver roles can view the areas their API roles allow.
+
+Current UI areas:
+
+- overview, readiness, database counts, latest documents
+- settings and storage mode
+- reference registry
+- case queue
+- retention policies
+- audit events
+
+The UI does not store API keys in the database. Browser key storage uses local browser storage on the administrator workstation.
 
 ### Most Common Local Changes
+
+Runtime root override:
+
+```powershell
+$env:SIGNATURE_VERIFICATION_ROOT = "D:\SignatureVerification"
+```
+
+When set, local tools and API readiness use folders below that root instead of the default `C:\Temp\SignatureVerification`.
+
+Storage mode during setup:
+
+```powershell
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- setup-wizard --storageMode Hybrid
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- setup-wizard --storageMode Database
+```
+
+Use `Hybrid` when existing file folders remain the operational source of documents, references, debug images, and reports while SQL stores results and workflow records. Use `Database` when the application should store document bytes, reference image bytes, results, debug artifacts, reviewer decisions, cases, and audit records in SQL.
+
+Check the selected mode:
+
+```sql
+SELECT SettingValue
+FROM ssv.SystemSetting
+WHERE SettingKey = 'StorageMode';
+```
 
 Thresholds:
 
@@ -375,6 +426,98 @@ Output\Customer123\debug
 ```
 
 Debug images are written only when enabled.
+
+## Database Administration
+
+SQL storage is available at runtime for the console/local folder runner and as a backfill path for older result JSON files. The application can still produce result JSON files, but when a database connection string is supplied it also writes the same result, signature cases, reference comparisons, and debug artifact paths directly into SQL.
+
+For the full SQL reference, including database name, connection strings, tables, views, migrations, and verification queries, see [SQL Database Reference](SQL-Database.md).
+
+Default database:
+
+```text
+SignatureVerification
+```
+
+Default local development connection string:
+
+```text
+Data Source=(localdb)\MSSQLLocalDB;Initial Catalog=SignatureVerification;Integrated Security=True;Encrypt=False;TrustServerCertificate=True;Application Name=SignatureVerification;
+```
+
+Main administration files:
+
+```text
+database\001_initial_schema.sql
+database\002_production_workflow_schema.sql
+scripts\Initialize-Database.ps1
+scripts\Import-VerificationResultsToDatabase.ps1
+scripts\Export-DatabaseReviewQueue.ps1
+StaticSignatureVerification.Storage\StorageContracts.cs
+StaticSignatureVerification.Storage\SqlVerificationResultStore.cs
+```
+
+Configure runtime database writes with one of:
+
+```text
+C:\Temp\SignatureVerification\Input\database-connection.txt
+C:\Temp\SignatureVerification\database-connection.txt
+SIGNATURE_VERIFICATION_DB_CONNECTION
+--databaseConnectionString
+```
+
+Use `Encrypt=False;TrustServerCertificate=True` for the current LocalDB instance. Use production-approved encryption settings for shared SQL Server environments.
+
+Migration status is tracked in:
+
+```text
+ssv.SchemaMigration
+```
+
+Production workflow tables are now available for:
+
+- reference enrollment, approval, retirement, replacement, and duplicate alerts
+- versioned form templates and signature zones
+- reviewer case assignment, SLA, escalation, and case events
+- security roles and role assignments
+- structured audit events
+- encrypted storage metadata
+- retention policies and purge runs
+- disaster recovery/export package tracking
+
+## Production Workflow Administration
+
+Use `StaticSignatureVerification.Operations` for business administration tasks that should not be performed by manually editing files or database rows.
+
+Reference lifecycle:
+
+- `enroll-reference`: stores the image, scores quality, records party/reference metadata, and creates approval audit.
+- `approve-reference`: marks the latest reference image approved and eligible for matching.
+- `reject-reference`: rejects an enrolled reference image.
+- `retire-reference`: retires an approved or obsolete reference.
+- `scan-duplicates`: compares enrolled references and opens similarity alerts.
+
+Case management:
+
+- `create-case`
+- `assign-case`
+- `complete-case`
+- `escalate-case`
+- `cancel-case`
+- `case-dashboard`
+
+Retention and export:
+
+- `set-retention`
+- `purge`
+- `export-dr`
+
+Security:
+
+- API authentication is API-key based using `SIGNATURE_API_KEYS`; the API fails startup if no key configuration is supplied.
+- API keys map to roles: `Administrator`, `ReferenceApprover`, `Reviewer`, `Auditor`, `Verifier`.
+- API logs are structured JSON and must remain payload-safe.
+- Reference image storage uses Windows DPAPI when `--encrypt true`.
 
 ## Cleaning Synthetic Data
 

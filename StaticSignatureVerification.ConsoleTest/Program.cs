@@ -1,14 +1,16 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization.Metadata;
+using StaticSignatureVerification.Core;
+using StaticSignatureVerification.Storage;
 using StaticSignatureVerification.TotalAgilityWrapper;
 
-const string DefaultInputFolder = @"C:\Temp\SignatureVerification\Input";
-const string DefaultOutputFolder = @"C:\Temp\SignatureVerification\Output";
-const string DefaultReferenceFolder = @"C:\Temp\SignatureVerification\ReferenceSignatures";
+var runtimeOptions = new EnvironmentSignatureVerificationConfigService().GetRuntimeOptions();
+var defaultInputFolder = runtimeOptions.InputFolder;
+var defaultOutputFolder = runtimeOptions.OutputFolder;
+var defaultReferenceFolder = runtimeOptions.ReferenceFolder;
 
 var arguments = args.Length == 0
-    ? CliArguments.CreateLocalFolderDefaults(DefaultInputFolder, DefaultOutputFolder, DefaultReferenceFolder)
+    ? CliArguments.CreateLocalFolderDefaults(defaultInputFolder, defaultOutputFolder, defaultReferenceFolder)
     : CliArguments.Parse(args);
 
 if (arguments.Has("--help"))
@@ -21,10 +23,10 @@ try
 {
     if (arguments.Has("--localFolderMode"))
     {
-        var inputDocuments = FileDiscovery.FindInputDocuments(DefaultInputFolder).ToList();
+        var inputDocuments = FileDiscovery.FindInputDocuments(defaultInputFolder).ToList();
         if (inputDocuments.Count == 0)
         {
-            throw new InvalidOperationException($"No PDF, image, or Base64 document files were found in {DefaultInputFolder}.");
+            throw new InvalidOperationException($"No PDF, image, or Base64 document files were found in {defaultInputFolder}.");
         }
 
         Console.WriteLine($"Processing {inputDocuments.Count} document(s).");
@@ -32,18 +34,18 @@ try
         {
             var documentArguments = arguments.Clone();
             SetDocumentPath(documentArguments, documentPath);
-            ApplyDocumentCompanionFiles(documentArguments, DefaultInputFolder, documentPath);
+            ApplyDocumentCompanionFiles(documentArguments, defaultInputFolder, documentPath);
 
-            var outputFolder = Path.Combine(DefaultOutputFolder, FileDiscovery.MakeOutputFolderName(DefaultInputFolder, documentPath));
+            var outputFolder = Path.Combine(defaultOutputFolder, FileDiscovery.MakeOutputFolderName(defaultInputFolder, documentPath));
             documentArguments.Set("--outputJsonFile", Path.Combine(outputFolder, "result.json"));
             documentArguments.Set("--debugOutputFolder", Path.Combine(outputFolder, "debug"));
 
             ProcessOneDocument(documentArguments);
         }
 
-        Console.WriteLine($"Input folder: {DefaultInputFolder}");
-        Console.WriteLine($"Reference folder: {DefaultReferenceFolder}");
-        Console.WriteLine($"Output folder: {DefaultOutputFolder}");
+        Console.WriteLine($"Input folder: {defaultInputFolder}");
+        Console.WriteLine($"Reference folder: {defaultReferenceFolder}");
+        Console.WriteLine($"Output folder: {defaultOutputFolder}");
     }
     else
     {
@@ -71,12 +73,33 @@ static void ProcessOneDocument(CliArguments arguments)
     if (string.IsNullOrWhiteSpace(output))
     {
         Console.WriteLine(resultJson);
+        PersistResultToDatabase(resultJson, arguments, null);
         return;
     }
 
     Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output)) ?? ".");
     File.WriteAllText(output, resultJson);
     Console.WriteLine($"Result JSON written to {output}");
+
+    PersistResultToDatabase(resultJson, arguments, output);
+}
+
+static void PersistResultToDatabase(string resultJson, CliArguments arguments, string? resultPath)
+{
+    var connectionString = arguments.Get("--databaseConnectionString");
+    if (string.IsNullOrWhiteSpace(connectionString))
+    {
+        return;
+    }
+
+    var sourceDocumentPath = GetDocumentPath(arguments);
+    var documentName = sourceDocumentPath is { Length: > 0 }
+        ? Path.GetFileNameWithoutExtension(sourceDocumentPath)
+        : null;
+    var record = JsonVerificationResultMapper.FromJson(resultJson, documentName, sourceDocumentPath, resultPath);
+    var store = new SqlVerificationResultStore(connectionString);
+    store.UpsertVerificationResultAsync(record).GetAwaiter().GetResult();
+    Console.WriteLine($"Result stored in database for {record.DocumentResultId}");
 }
 
 static void SetDocumentPath(CliArguments arguments, string documentPath)
@@ -287,11 +310,7 @@ static string? BuildReferenceJsonFromImages(string referencesFolder, string? doc
     return root.ToJsonString(CreateIndentedJsonOptions());
 }
 
-static JsonSerializerOptions CreateIndentedJsonOptions() => new(JsonSerializerDefaults.Web)
-{
-    TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
-    WriteIndented = true
-};
+static JsonSerializerOptions CreateIndentedJsonOptions() => SignatureJsonOptions.Indented;
 
 static string? GetDocumentPath(CliArguments arguments) =>
     arguments.Get("--documentPdfFile") ??
@@ -407,6 +426,7 @@ Optional:
   --referencesFolder <path>
   --debugOutputFolder <path>
   --ghostscriptPath <path>
+  --databaseConnectionString <connection-string>
   --pageIndex <number>
   --maxPages <number>
   --dpi <number>
@@ -427,6 +447,9 @@ Subfolders under ReferenceSignatures become separate signature sets, but the ima
 filename must still exactly match the input document filename.
 For PDF tests, put ghostscript-path.txt in Input or C:\Temp\SignatureVerification,
 or let the app auto-detect Ghostscript under C:\Program Files\gs.
+To write results directly to SQL, pass --databaseConnectionString or put
+database-connection.txt in Input or C:\Temp\SignatureVerification.
+No-argument local folder mode also reads SIGNATURE_VERIFICATION_DB_CONNECTION.
 """);
 }
 
@@ -491,6 +514,29 @@ internal sealed class CliArguments
         else if (FileDiscovery.TryFindGhostscript() is { Length: > 0 } detectedGhostscript)
         {
             parsed.Set("--ghostscriptPath", detectedGhostscript);
+        }
+
+        var databaseConnection = Environment.GetEnvironmentVariable("SIGNATURE_VERIFICATION_DB_CONNECTION");
+        if (!string.IsNullOrWhiteSpace(databaseConnection))
+        {
+            parsed.Set("--databaseConnectionString", databaseConnection);
+            return parsed;
+        }
+
+        var databaseConnectionFile = new[]
+            {
+                Path.Combine(inputFolder, "database-connection.txt"),
+                Path.Combine(rootFolder, "database-connection.txt")
+            }
+            .FirstOrDefault(File.Exists);
+
+        if (!string.IsNullOrWhiteSpace(databaseConnectionFile))
+        {
+            var connectionString = File.ReadAllText(databaseConnectionFile).Trim();
+            if (!string.IsNullOrWhiteSpace(connectionString))
+            {
+                parsed.Set("--databaseConnectionString", connectionString);
+            }
         }
 
         return parsed;

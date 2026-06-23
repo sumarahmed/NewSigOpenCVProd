@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization.Metadata;
 using System.Globalization;
 using StaticSignatureVerification.Core;
 using StaticSignatureVerification.PdfRendering;
@@ -13,6 +12,26 @@ namespace StaticSignatureVerification.TotalAgilityWrapper;
 public sealed class SignatureVerificationWrapper
 {
     private const string EngineVersion = "1.0.0";
+    private readonly IVerificationApplicationService _applicationService;
+    private readonly IPdfPageRenderer _pdfRenderer;
+    private readonly IVerificationLogger _logger;
+
+    public SignatureVerificationWrapper()
+        : this(new VerificationApplicationService(), new GhostscriptCommandLinePdfRenderer(), NoopVerificationLogger.Instance)
+    {
+    }
+
+    public SignatureVerificationWrapper(IVerificationApplicationService applicationService, IPdfPageRenderer pdfRenderer)
+        : this(applicationService, pdfRenderer, NoopVerificationLogger.Instance)
+    {
+    }
+
+    public SignatureVerificationWrapper(IVerificationApplicationService applicationService, IPdfPageRenderer pdfRenderer, IVerificationLogger logger)
+    {
+        _applicationService = applicationService;
+        _pdfRenderer = pdfRenderer;
+        _logger = logger;
+    }
 
     /// <summary>
     /// Hardened TotalAgility entry point that accepts one JSON request and returns the standard result JSON.
@@ -66,16 +85,19 @@ public sealed class SignatureVerificationWrapper
                 referenceSignaturesJson,
                 optionsJson);
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            _logger.Error(correlationId ?? "unknown", "WrapperRequestParsing", ex, "REQUEST_INVALID");
             return CreateWrapperError("REQUEST_INVALID", "The request JSON could not be parsed.", startedUtc, null);
         }
-        catch (FormatException)
+        catch (FormatException ex)
         {
+            _logger.Error(correlationId ?? "unknown", "WrapperOptionsParsing", ex, "OPTIONS_JSON_INVALID");
             return CreateWrapperError("OPTIONS_JSON_INVALID", "One or more threshold parameters could not be parsed.", startedUtc, correlationId);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.Error(correlationId ?? "unknown", "WrapperVerifyRequest", ex, "UNHANDLED_EXCEPTION");
             return CreateWrapperError("UNHANDLED_EXCEPTION", "An unexpected wrapper error occurred while verifying signatures.", startedUtc, correlationId);
         }
     }
@@ -91,13 +113,16 @@ public sealed class SignatureVerificationWrapper
     {
         try
         {
-            var renderer = new GhostscriptCommandLinePdfRenderer();
-            var engine = new StaticSignatureVerificationEngine();
-            var result = engine.Verify(documentBase64, ocrLayoutJson, referenceSignaturesJson, optionsJson, renderer);
-            return StaticSignatureVerificationEngine.ToJson(result);
+            return _applicationService.VerifyToJson(new SignatureVerificationRequest(
+                documentBase64,
+                ocrLayoutJson,
+                referenceSignaturesJson,
+                optionsJson,
+                _pdfRenderer));
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.Error("unknown", "WrapperVerify", ex, "UNHANDLED_EXCEPTION");
             return StaticSignatureVerificationEngine.ToJson(ResultJsonBuilder.CreateError(
                 "1.0.0",
                 "UNHANDLED_EXCEPTION",
@@ -122,8 +147,9 @@ public sealed class SignatureVerificationWrapper
             var mergedOptions = MergeThresholds(optionsJson, matchedThreshold, probableMatchThreshold, reviewRequiredThreshold);
             return VerifySignatures(documentBase64, ocrLayoutJson, referenceSignaturesJson, mergedOptions);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.Error("unknown", "WrapperThresholds", ex, "OPTIONS_JSON_INVALID");
             return StaticSignatureVerificationEngine.ToJson(ResultJsonBuilder.CreateError(
                 "1.0.0",
                 "OPTIONS_JSON_INVALID",
@@ -146,8 +172,9 @@ public sealed class SignatureVerificationWrapper
             var mergedOptions = MergeSignatureRoleMode(optionsJson, signatureRoleMode);
             return VerifySignatures(documentBase64, ocrLayoutJson, referenceSignaturesJson, mergedOptions);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.Error("unknown", "WrapperSignatureRoleMode", ex, "OPTIONS_JSON_INVALID");
             return StaticSignatureVerificationEngine.ToJson(ResultJsonBuilder.CreateError(
                 "1.0.0",
                 "OPTIONS_JSON_INVALID",
@@ -203,8 +230,9 @@ public sealed class SignatureVerificationWrapper
                 JsonSerializer.Serialize(references, CreateWebJsonOptions()),
                 mergedOptions);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.Error("unknown", "WrapperSimpleSignature", ex, "UNHANDLED_EXCEPTION");
             return StaticSignatureVerificationEngine.ToJson(ResultJsonBuilder.CreateError(
                 "1.0.0",
                 "UNHANDLED_EXCEPTION",
@@ -325,10 +353,7 @@ public sealed class SignatureVerificationWrapper
         return root.ToJsonString(CreateWebJsonOptions());
     }
 
-    private static JsonSerializerOptions CreateWebJsonOptions() => new(JsonSerializerDefaults.Web)
-    {
-        TypeInfoResolver = new DefaultJsonTypeInfoResolver()
-    };
+    private static JsonSerializerOptions CreateWebJsonOptions() => SignatureJsonOptions.Compact;
 
     private static JsonObject EnsureObject(JsonObject root, string name)
     {

@@ -14,7 +14,39 @@ It is visual similarity software, not biometric identity proofing. It does not u
 - `StaticSignatureVerification.ConsoleTest`: local folder and manual CLI runner.
 - `StaticSignatureVerification.Reporting`: business reports, visual review queue, reviewer outcome export, feedback tuning.
 - `StaticSignatureVerification.Benchmark`: synthetic English/Chinese handwriting dataset generator and benchmark runner.
+- `StaticSignatureVerification.Storage`: database storage contracts and shared database DTOs.
+- `StaticSignatureVerification.Production`: production utilities for reference quality scoring, encrypted artifact storage, readiness checks, and export packaging.
+- `StaticSignatureVerification.Operations`: administration CLI for reference lifecycle, case management, retention, purge, export, and setup checks.
+- `StaticSignatureVerification.Api`: authenticated REST API service for verification and production workflows.
 - `StaticSignatureVerification.Tests`: self-running regression test harness.
+
+## Application Service Layer
+
+The production orchestration seam is `VerificationApplicationService` in `StaticSignatureVerification.Core`.
+
+It accepts a `SignatureVerificationRequest` and delegates to the deterministic engine while keeping the public JSON contract stable. The TotalAgility wrapper now calls this service instead of constructing and coordinating the pipeline directly.
+
+The engine pipeline is exposed through unit-testable interfaces:
+
+- `IDocumentInputDetector`
+- `IOcrLayoutParser`
+- `ISignatureDetector`
+- `ISignaturePreprocessor`
+- `IFeatureExtractor`
+- `ISimilarityScorer`
+- `IDecisionEngine`
+- `IReasoningBuilder`
+- `IDebugImageWriter`
+- `IResultBuilder`
+
+Default concrete implementations preserve the existing algorithm. Tests can inject fakes or custom profiles without changing the public wrapper.
+
+Shared infrastructure services:
+
+- `SignatureJsonOptions`: one camelCase JSON contract for compact and indented output.
+- `EnvironmentSignatureVerificationConfigService`: reads runtime root, database connection, Ghostscript path, and storage mode from environment variables.
+- `IVerificationLogger`: records sanitized internal pipeline events, warnings, and errors without logging Base64 payloads.
+- `VerificationProfiles`: named detection, preprocessing, and scoring constants that replace hidden magic numbers.
 
 ## Processing Pipeline
 
@@ -97,6 +129,17 @@ Synthetic benchmark results additionally include:
 - `source = SyntheticGroundTruth`
 
 These are test-only truth fields and should not be expected from production unless the caller supplies them.
+
+## Storage Modes
+
+The runtime supports two storage modes.
+
+| Mode | Contract |
+| --- | --- |
+| `Hybrid` | Documents, reference images, debug images, and reports may remain on disk. SQL stores result records, reviewer outcomes, reference lifecycle metadata, audit, cases, retention, and export metadata. |
+| `Database` | Incoming documents, approved reference images, result records, debug artifacts, reviewer outcomes, audit, and workflow data are stored in SQL. |
+
+The selected mode is stored in `ssv.SystemSetting` as `StorageMode`. The setup wizard can prompt for it interactively or accept `--storageMode Hybrid` / `--storageMode Database`.
 
 ## TotalAgility API
 
@@ -229,3 +272,119 @@ Local folder mode clears fixed `pageIndex` for PDF testing so all pages can be s
 
 Reviewer feedback is controlled and auditable. The system creates recommendations and action queues; it does not silently overwrite production thresholds or enroll new reference images.
 
+## Database Storage
+
+The database migration adds a SQL Server storage layer beside the existing file workflow. File processing remains available, and completed `result.json` files can be imported into SQL for backfill. The console/local folder runner can also write directly to SQL at runtime when a database connection string is supplied.
+
+For a DBA-friendly reference with all tables, views, migrations, connection strings, and verification queries, see [SQL Database Reference](SQL-Database.md).
+
+Schema file:
+
+```text
+database\001_initial_schema.sql
+```
+
+Main SQL objects:
+
+- `ssv.VerificationDocument`: one row per processed document result.
+- `ssv.SignatureCase`: one row per expected/detected signature role.
+- `ssv.ReferenceComparison`: audited candidate reference comparisons.
+- `ssv.DebugArtifact`: reserved for persisted debug image metadata.
+- `ssv.ReviewerOutcome`: reviewer decisions and feedback.
+- `ssv.ThresholdProfile`: approved threshold profiles.
+- `ssv.vwReviewQueue`: SQL-backed review queue projection.
+
+Production workflow SQL objects:
+
+- `ssv.SchemaMigration`: migration ledger for applied database scripts.
+- `ssv.ReferenceSubject`: party/customer identity for reference enrollment.
+- `ssv.ReferenceSetRegistry`: approved, draft, retired, and replaced reference sets.
+- `ssv.ReferenceImageRegistry`: individual reference images, quality score, approval status, hash, storage URI, and active dates.
+- `ssv.ReferenceApprovalEvent`: approval, replacement, rejection, and retirement audit trail.
+- `ssv.ReferenceSimilarityAlert`: duplicate/wrong-person reference alerts.
+- `ssv.FormTemplate` and `ssv.FormTemplateZone`: versioned form templates and known signature zones.
+- `ssv.ResultGovernanceSnapshot`: engine/template/threshold/reference versions used for a result.
+- `ssv.ReviewCase` and `ssv.ReviewCaseEvent`: case assignment, status, SLA, escalation, and event history.
+- `ssv.SecurityRole` and `ssv.SecurityPrincipalRole`: database-backed RBAC foundation.
+- `ssv.AuditEvent`: structured operational/security audit events.
+- `ssv.StorageObject`: encrypted storage metadata for documents, references, debug images, and reports.
+- `ssv.RetentionPolicy`, `ssv.PurgeRun`, and `ssv.PurgeRunItem`: retention and purge governance.
+- `ssv.ExportPackage`: disaster recovery/export package tracking.
+- `ssv.vwApprovedReferenceImage`: only approved reference images eligible for matching.
+- `ssv.vwCaseManagementQueue`: active case management queue projection.
+
+LocalDB default:
+
+```text
+Data Source=(localdb)\MSSQLLocalDB;Initial Catalog=SignatureVerification;Integrated Security=True;Encrypt=False;TrustServerCertificate=True;Application Name=SignatureVerification;
+```
+
+Storage contracts are in:
+
+```text
+StaticSignatureVerification.Storage\StorageContracts.cs
+StaticSignatureVerification.Storage\JsonVerificationResultMapper.cs
+StaticSignatureVerification.Storage\SqlVerificationResultStore.cs
+```
+
+The storage project uses `Microsoft.Data.SqlClient`. The core verification engine remains storage-agnostic; the console runner converts result JSON into storage records and persists them through `SqlVerificationResultStore` only when configured.
+
+Database migrations are applied in filename order from:
+
+```text
+database\*.sql
+```
+
+The initializer records each applied file in `ssv.SchemaMigration` and safely skips already-applied migrations.
+
+## Production API And Workflow Layer
+
+The production API is a minimal ASP.NET Core service with API-key authentication and role checks. It provides:
+
+- verification endpoint backed by `SignatureVerificationWrapper`
+- DB-native verification endpoint that loads approved references from SQL
+- result persistence through `SqlVerificationResultStore`
+- reference enrollment, approval, rejection, retirement, and duplicate scanning
+- review case create/assign/complete/escalate/cancel
+- reviewer outcome persistence
+- retention purge trigger
+- readiness endpoint
+- case dashboard endpoint
+
+The operations CLI uses the same production/storage layer, so local administration and API behavior share the same database contracts.
+
+Use these verification contracts:
+
+| Endpoint | Storage mode | Reference source |
+| --- | --- | --- |
+| `POST /api/v1/verify` | `Hybrid` or explicit caller-managed reference payloads | Request field `referenceSignaturesJson` |
+| `POST /api/v1/verify-db-native` | `Database` | Approved SQL rows in `ssv.vwApprovedReferenceImageNative` |
+
+DB-native request example:
+
+```json
+{
+  "documentName": "Customer123.pdf",
+  "contentType": "application/pdf",
+  "documentBase64": "...",
+  "signatureMappings": [
+    {
+      "signatureId": "applicant_signature",
+      "partyId": "0032",
+      "partyName": "Applicant Name",
+      "referenceSetId": "SIGNER_0032",
+      "expectedSignerId": "SIGNER_0032"
+    }
+  ],
+  "optionsJson": "{...}",
+  "ocrLayoutJson": "{...}"
+}
+```
+
+In DB-native mode, reference enrollment stores image bytes in `ssv.ReferenceImageBlob`. Verification stores input document bytes in `ssv.DocumentBlob` and debug image bytes in `ssv.DebugArtifactBlob`.
+
+The API may create temporary debug image files during processing because the core engine writes debug images as files. After DB-native verification, those bytes are stored in SQL, debug artifact paths are rewritten as `sql://` URIs, and the temporary debug folder is removed.
+
+Reference enrollment quality scoring checks image size, ink density, sharpness, average hash, and SHA-256. Failed references are stored as rejected and are not approved for matching. Approved references are exposed through `ssv.vwApprovedReferenceImage`.
+
+Encrypted local reference storage uses Windows DPAPI through `SecureArtifactStore` when encryption is enabled. Storage metadata is tracked in SQL with hash and storage URI fields.

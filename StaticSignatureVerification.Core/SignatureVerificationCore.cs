@@ -1,7 +1,5 @@
 using System.Diagnostics;
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using OpenCvSharp;
 
 namespace StaticSignatureVerification.Core;
@@ -12,22 +10,46 @@ namespace StaticSignatureVerification.Core;
 public sealed class StaticSignatureVerificationEngine
 {
     private const string EngineVersion = "1.0.0";
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        WriteIndented = true
-    };
+    private readonly IDocumentInputDetector _inputDetector;
+    private readonly IOcrLayoutParser _ocrParser;
+    private readonly ISignatureDetector _detector;
+    private readonly ISignaturePreprocessor _preprocessor;
+    private readonly IFeatureExtractor _featureExtractor;
+    private readonly ISimilarityScorer _scorer;
+    private readonly IDecisionEngine _decisionEngine;
+    private readonly IReasoningBuilder _reasoningBuilder;
+    private readonly IDebugImageWriter _debugImageWriter;
+    private readonly IResultBuilder _resultBuilder;
+    private readonly IVerificationLogger _logger;
+    private readonly VerificationProfiles _profiles;
 
-    private readonly DocumentInputDetector _inputDetector = new();
-    private readonly OcrLayoutParser _ocrParser = new();
-    private readonly SignatureDetector _detector = new();
-    private readonly SignaturePreprocessor _preprocessor = new();
-    private readonly FeatureExtractor _featureExtractor = new();
-    private readonly SimilarityScorer _scorer = new();
-    private readonly DecisionEngine _decisionEngine = new();
-    private readonly ReasoningBuilder _reasoningBuilder = new();
-    private readonly DebugImageWriter _debugImageWriter = new();
+    public StaticSignatureVerificationEngine(
+        IDocumentInputDetector? inputDetector = null,
+        IOcrLayoutParser? ocrParser = null,
+        ISignatureDetector? detector = null,
+        ISignaturePreprocessor? preprocessor = null,
+        IFeatureExtractor? featureExtractor = null,
+        ISimilarityScorer? scorer = null,
+        IDecisionEngine? decisionEngine = null,
+        IReasoningBuilder? reasoningBuilder = null,
+        IDebugImageWriter? debugImageWriter = null,
+        IResultBuilder? resultBuilder = null,
+        IVerificationLogger? logger = null,
+        VerificationProfiles? profiles = null)
+    {
+        _profiles = profiles ?? new VerificationProfiles();
+        _inputDetector = inputDetector ?? new DocumentInputDetector();
+        _ocrParser = ocrParser ?? new OcrLayoutParser();
+        _detector = detector ?? new SignatureDetector(_profiles.Detection);
+        _preprocessor = preprocessor ?? new SignaturePreprocessor(_profiles.Preprocessing);
+        _featureExtractor = featureExtractor ?? new FeatureExtractor();
+        _scorer = scorer ?? new SimilarityScorer(_profiles.Scoring);
+        _decisionEngine = decisionEngine ?? new DecisionEngine();
+        _reasoningBuilder = reasoningBuilder ?? new ReasoningBuilder();
+        _debugImageWriter = debugImageWriter ?? new DebugImageWriter();
+        _resultBuilder = resultBuilder ?? new ResultBuilder();
+        _logger = logger ?? NoopVerificationLogger.Instance;
+    }
 
     /// <summary>
     /// Runs visual signature comparison for one document and one or more reference signature sets.
@@ -41,7 +63,7 @@ public sealed class StaticSignatureVerificationEngine
     {
         var startedUtc = DateTimeOffset.UtcNow;
         var stopwatch = Stopwatch.StartNew();
-        var result = ResultJsonBuilder.CreateEmpty(EngineVersion);
+        var result = _resultBuilder.CreateEmpty(EngineVersion);
         SignatureVerificationOptions? options = null;
         ReferenceSignatureInput? references = null;
 
@@ -53,7 +75,7 @@ public sealed class StaticSignatureVerificationEngine
         catch (JsonException)
         {
             return CompleteOperationalAudit(
-                ResultJsonBuilder.CreateError(EngineVersion, "OPTIONS_JSON_INVALID", "The options JSON could not be parsed."),
+                _resultBuilder.CreateError(EngineVersion, "OPTIONS_JSON_INVALID", "The options JSON could not be parsed."),
                 startedUtc,
                 stopwatch,
                 options,
@@ -69,7 +91,7 @@ public sealed class StaticSignatureVerificationEngine
         catch (JsonException)
         {
             return CompleteOperationalAudit(
-                ResultJsonBuilder.CreateError(EngineVersion, "REFERENCE_SIGNATURE_MISSING", "The reference signatures JSON could not be parsed."),
+                _resultBuilder.CreateError(EngineVersion, "REFERENCE_SIGNATURE_MISSING", "The reference signatures JSON could not be parsed."),
                 startedUtc,
                 stopwatch,
                 options,
@@ -80,7 +102,7 @@ public sealed class StaticSignatureVerificationEngine
         if (references.ReferenceSets.Count == 0 || references.ReferenceSets.All(r => r.ReferenceImages.Count == 0))
         {
             return CompleteOperationalAudit(
-                ResultJsonBuilder.CreateError(EngineVersion, "REFERENCE_SIGNATURE_MISSING", "At least one reference signature image is required."),
+                _resultBuilder.CreateError(EngineVersion, "REFERENCE_SIGNATURE_MISSING", "At least one reference signature image is required."),
                 startedUtc,
                 stopwatch,
                 options,
@@ -96,7 +118,7 @@ public sealed class StaticSignatureVerificationEngine
         catch (FormatException)
         {
             return CompleteOperationalAudit(
-                ResultJsonBuilder.CreateError(EngineVersion, "INVALID_BASE64_DOCUMENT", "The documentBase64 value is not valid Base64."),
+                _resultBuilder.CreateError(EngineVersion, "INVALID_BASE64_DOCUMENT", "The documentBase64 value is not valid Base64."),
                 startedUtc,
                 stopwatch,
                 options,
@@ -111,6 +133,7 @@ public sealed class StaticSignatureVerificationEngine
         IReadOnlyDictionary<string, List<ReferenceFeature>>? referenceFeatures = null;
         try
         {
+            _logger.StageStarted(options.CorrelationId ?? result.DocumentResultId, "Verify");
             var inputType = _inputDetector.Detect(documentBytes, options.InputDocumentType);
             result.InputDocumentType = inputType.ToString();
             pages = LoadPages(documentBytes, inputType, options, pdfRenderer, result);
@@ -139,12 +162,14 @@ public sealed class StaticSignatureVerificationEngine
                 result.Warnings.Add("At least one signature requires human review.");
             }
 
+            _logger.StageCompleted(options.CorrelationId ?? result.DocumentResultId, "Verify");
             return CompleteOperationalAudit(result, startedUtc, stopwatch, options, references, pages);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.Error(options?.CorrelationId ?? result.DocumentResultId, "Verify", ex, "UNHANDLED_EXCEPTION");
             return CompleteOperationalAudit(
-                ResultJsonBuilder.CreateError(EngineVersion, "UNHANDLED_EXCEPTION", "An unexpected error occurred while verifying signatures."),
+                _resultBuilder.CreateError(EngineVersion, "UNHANDLED_EXCEPTION", "An unexpected error occurred while verifying signatures."),
                 startedUtc,
                 stopwatch,
                 options,
@@ -168,7 +193,7 @@ public sealed class StaticSignatureVerificationEngine
     /// <summary>
     /// Serializes a verification result using the public JSON contract.
     /// </summary>
-    public static string ToJson(VerificationResult result) => JsonSerializer.Serialize(result, JsonOptions);
+    public static string ToJson(VerificationResult result) => JsonSerializer.Serialize(result, SignatureJsonOptions.Indented);
 
     private static VerificationResult CompleteOperationalAudit(
         VerificationResult result,
@@ -262,11 +287,13 @@ public sealed class StaticSignatureVerificationEngine
             }
             catch (SignatureVerificationException ex)
             {
+                _logger.Error(options.CorrelationId ?? result.DocumentResultId, "PdfRendering", ex, ex.Code);
                 result.Errors.Add(new ErrorDetail(ex.Code, ex.Message));
                 return Array.Empty<PageImage>();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger.Error(options.CorrelationId ?? result.DocumentResultId, "PdfRendering", ex, "PDF_RENDERING_FAILED");
                 result.Errors.Add(new ErrorDetail("PDF_RENDERING_FAILED", "The PDF could not be rendered to images."));
                 return Array.Empty<PageImage>();
             }
@@ -277,8 +304,9 @@ public sealed class StaticSignatureVerificationEngine
             var mat = DocumentInputDetector.DecodeImageBytes(documentBytes, ImreadModes.Grayscale);
             return new[] { new PageImage(0, mat, documentBytes, options.Dpi) };
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.Error(options.CorrelationId ?? result.DocumentResultId, "ImageDecode", ex, "UNSUPPORTED_IMAGE_FORMAT");
             result.Errors.Add(new ErrorDetail("UNSUPPORTED_IMAGE_FORMAT", "The image could not be decoded by OpenCV."));
             return Array.Empty<PageImage>();
         }
@@ -300,8 +328,10 @@ public sealed class StaticSignatureVerificationEngine
                     var metrics = _featureExtractor.Extract(processed, processed.CleanBinary, 100);
                     list.Add(new ReferenceFeature(reference.ReferenceId, reference.SourceFileName, reference.SourceFilePath, processed, metrics));
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    _logger.Warning(options.CorrelationId ?? "unknown", "ReferencePreprocessing", "REFERENCE_IMAGE_SKIPPED", $"Reference image '{reference.ReferenceId}' could not be decoded and was skipped.");
+                    _logger.Error(options.CorrelationId ?? "unknown", "ReferencePreprocessing", ex, "REFERENCE_IMAGE_SKIPPED");
                     warnings.Add($"Reference image '{reference.ReferenceId}' could not be decoded and was skipped.");
                 }
             }
@@ -525,8 +555,8 @@ public sealed class StaticSignatureVerificationEngine
                     .OrderByDescending(c => c.QualityAdjustedScore)
                     .ToList();
                 var bestScore = comparisons.FirstOrDefault()?.QualityAdjustedScore ?? 0;
-                var reusePenalty = OverlapsAnyUsedRegion(candidate.Region, usedRegions) ? 25 : 0;
-                var rank = bestScore + candidate.Region.RegionConfidence * 0.05 - reusePenalty;
+                var reusePenalty = OverlapsAnyUsedRegion(candidate.Region, usedRegions) ? _profiles.Detection.ReusedRegionPenalty : 0;
+                var rank = bestScore + candidate.Region.RegionConfidence * _profiles.Detection.CandidateRegionConfidenceWeight - reusePenalty;
                 evaluations.Add(new CandidateEvaluation(candidate, processed, metrics, comparisons, rank));
                 processed = null;
             }
@@ -539,8 +569,8 @@ public sealed class StaticSignatureVerificationEngine
         return evaluations.OrderByDescending(e => e.Rank).ToList();
     }
 
-    private static bool OverlapsAnyUsedRegion(DetectedRegion candidate, IReadOnlyList<DetectedRegion> usedRegions) =>
-        usedRegions.Any(used => SamePageOverlap(candidate, used) >= 0.25);
+    private bool OverlapsAnyUsedRegion(DetectedRegion candidate, IReadOnlyList<DetectedRegion> usedRegions) =>
+        usedRegions.Any(used => SamePageOverlap(candidate, used) >= _profiles.Detection.UsedRegionOverlapThreshold);
 
     private static double SamePageOverlap(DetectedRegion a, DetectedRegion b)
     {
@@ -610,7 +640,7 @@ public sealed class PdfRenderOptions
     public bool KeepTempFiles { get; set; }
 }
 
-public sealed class DocumentInputDetector
+public sealed class DocumentInputDetector : IDocumentInputDetector
 {
     public InputDocumentType Detect(byte[] bytes, string? requestedType)
     {
@@ -641,8 +671,15 @@ public sealed class DocumentInputDetector
     }
 }
 
-public sealed class SignatureDetector
+public sealed class SignatureDetector : ISignatureDetector
 {
+    private readonly DetectionProfile _profile;
+
+    public SignatureDetector(DetectionProfile? profile = null)
+    {
+        _profile = profile ?? new DetectionProfile();
+    }
+
     public List<DetectedCandidate> DetectCandidates(IReadOnlyList<PageImage> pages, ReferenceSignatureSet set, OcrLayout ocr, SignatureVerificationOptions options)
     {
         var candidates = new List<DetectedCandidate>();
@@ -668,7 +705,7 @@ public sealed class SignatureDetector
                 var cropRect = InsetKnownZoneRect(rect);
                 var crop = new Mat(page.Image, cropRect).Clone();
                 var density = EstimateInkDensity(crop);
-                var confidence = ScoreCandidate(100, density, cropRect);
+                    var confidence = ScoreCandidate(_profile.KnownZoneSourceScore, density, cropRect);
                 candidates.Add(new DetectedCandidate(new DetectedRegion
                 {
                     PageIndex = page.PageIndex,
@@ -715,7 +752,9 @@ public sealed class SignatureDetector
 
                     var crop = new Mat(page.Image, rect).Clone();
                     var density = EstimateInkDensity(crop);
-                    var sourceScore = options.Detection.SearchBelowLabel && searchRect.Y >= label.Rect.Bottom ? 85 : 78;
+                    var sourceScore = options.Detection.SearchBelowLabel && searchRect.Y >= label.Rect.Bottom
+                        ? _profile.OcrBelowLabelSourceScore
+                        : _profile.OcrRightOfLabelSourceScore;
                     candidates.Add(new DetectedCandidate(new DetectedRegion
                     {
                         PageIndex = page.PageIndex,
@@ -764,7 +803,7 @@ public sealed class SignatureDetector
         foreach (var candidate in eligibleCandidates)
         {
             if (selectedCandidates.Count < candidateLimit &&
-                !selectedCandidates.Any(selected => CandidateOverlap(candidate.Region, selected.Region) >= 0.85))
+                !selectedCandidates.Any(selected => CandidateOverlap(candidate.Region, selected.Region) >= _profile.DuplicateCandidateOverlapThreshold))
             {
                 selectedCandidates.Add(candidate);
                 continue;
@@ -839,11 +878,11 @@ public sealed class SignatureDetector
         }
     }
 
-    private static IEnumerable<DetectedCandidate> FindBoxes(PageImage page)
+    private IEnumerable<DetectedCandidate> FindBoxes(PageImage page)
     {
         using var binary = ThresholdInk(page.Image);
         using var edges = new Mat();
-        Cv2.Canny(page.Image, edges, 60, 180);
+        Cv2.Canny(page.Image, edges, _profile.CannyLowThreshold, _profile.CannyHighThreshold);
         Cv2.FindContours(edges, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
         foreach (var contour in contours)
         {
@@ -870,17 +909,17 @@ public sealed class SignatureDetector
                 Height = cropRect.Height,
                 CoordinateSystem = "pixels",
                 Source = "BoxDetection",
-                RegionConfidence = ScoreCandidate(70, density, cropRect),
+                RegionConfidence = ScoreCandidate(_profile.BoxDetectionSourceScore, density, cropRect),
                 InkDensityPercent = Math.Round(density, 2),
                 CandidateReason = "A rectangular signature-like box was detected and evaluated."
             }, crop);
         }
     }
 
-    private static IEnumerable<DetectedCandidate> FindInkRegions(PageImage page)
+    private IEnumerable<DetectedCandidate> FindInkRegions(PageImage page)
     {
         using var binary = ThresholdInk(page.Image);
-        using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(18, 8));
+        using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(_profile.InkRegionJoinKernelWidth, _profile.InkRegionJoinKernelHeight));
         using var joined = new Mat();
         Cv2.MorphologyEx(binary, joined, MorphTypes.Close, kernel);
         Cv2.FindContours(joined, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
@@ -906,7 +945,7 @@ public sealed class SignatureDetector
                 Height = rect.Height,
                 CoordinateSystem = "pixels",
                 Source = "InkRegion",
-                RegionConfidence = ScoreCandidate(55, density, rect),
+                RegionConfidence = ScoreCandidate(_profile.InkRegionSourceScore, density, rect),
                 InkDensityPercent = Math.Round(density, 2),
                 CandidateReason = "Fallback handwriting-like ink region was detected."
             }, crop);
@@ -1050,8 +1089,15 @@ public sealed record CandidateEvaluation(
     double Rank);
 public sealed record ReferenceFeature(string ReferenceId, string? SourceFileName, string? SourceFilePath, ProcessedSignature Processed, SignatureMetrics Metrics);
 
-public sealed class SignaturePreprocessor
+public sealed class SignaturePreprocessor : ISignaturePreprocessor
 {
+    private readonly PreprocessingProfile _profile;
+
+    public SignaturePreprocessor(PreprocessingProfile? profile = null)
+    {
+        _profile = profile ?? new PreprocessingProfile();
+    }
+
     public ProcessedSignature Preprocess(Mat gray, SignatureVerificationOptions options, string debugName)
     {
         var audit = new PreprocessingAudit
@@ -1068,21 +1114,21 @@ public sealed class SignaturePreprocessor
 
         using var sourceGray = gray.Channels() == 1 ? gray.Clone() : gray.CvtColor(ColorConversionCodes.BGR2GRAY);
         using var denoised = new Mat();
-        Cv2.MedianBlur(sourceGray, denoised, 3);
+        Cv2.MedianBlur(sourceGray, denoised, _profile.MedianBlurKernelSize);
         var binary = new Mat();
         Cv2.Threshold(denoised, binary, 0, 255, ThresholdTypes.BinaryInv | ThresholdTypes.Otsu);
 
         RemoveLines(binary);
         var deskewAngle = EstimateDeskewAngle(binary);
         audit.DeskewAngleDegrees = Math.Round(deskewAngle, 2);
-        if (Math.Abs(deskewAngle) >= 0.5 && Math.Abs(deskewAngle) <= 10)
+        if (Math.Abs(deskewAngle) >= _profile.MinimumDeskewDegrees && Math.Abs(deskewAngle) <= _profile.MaximumDeskewDegrees)
         {
             binary = Rotate(binary, deskewAngle);
             audit.DeskewApplied = true;
         }
 
-        var cropped = CropToInk(binary, 12);
-        var normalized = NormalizeCanvas(cropped, options.NormalizedCanvasWidth, options.NormalizedCanvasHeight);
+        var cropped = CropToInk(binary, _profile.InkCropPaddingPixels);
+        var normalized = NormalizeCanvas(cropped, options.NormalizedCanvasWidth, options.NormalizedCanvasHeight, _profile);
         var skeleton = Skeletonize(normalized);
 
         return new ProcessedSignature(debugName, sourceGray.Clone(), binary, cropped, normalized, skeleton, audit);
@@ -1141,7 +1187,7 @@ public sealed class SignaturePreprocessor
         return new Mat(binary, rect).Clone();
     }
 
-    private static Mat NormalizeCanvas(Mat crop, int canvasWidth, int canvasHeight)
+    private static Mat NormalizeCanvas(Mat crop, int canvasWidth, int canvasHeight, PreprocessingProfile profile)
     {
         var canvas = new Mat(new Size(canvasWidth, canvasHeight), MatType.CV_8UC1, Scalar.Black);
         if (crop.Empty() || Cv2.CountNonZero(crop) == 0)
@@ -1149,7 +1195,7 @@ public sealed class SignaturePreprocessor
             return canvas;
         }
 
-        var scale = Math.Min((canvasWidth * 0.9) / crop.Width, (canvasHeight * 0.85) / crop.Height);
+        var scale = Math.Min((canvasWidth * profile.NormalizedCanvasWidthUsage) / crop.Width, (canvasHeight * profile.NormalizedCanvasHeightUsage) / crop.Height);
         var resizedWidth = Math.Max(1, (int)Math.Round(crop.Width * scale));
         var resizedHeight = Math.Max(1, (int)Math.Round(crop.Height * scale));
         using var resized = new Mat();
@@ -1201,7 +1247,7 @@ public sealed record ProcessedSignature(
     }
 }
 
-public sealed class FeatureExtractor
+public sealed class FeatureExtractor : IFeatureExtractor
 {
     public SignatureMetrics Extract(ProcessedSignature processed, Mat binary, double cropConfidence)
     {
@@ -1372,8 +1418,15 @@ public sealed class FeatureExtractor
     private static double Percent(int count, int total) => Math.Round(100.0 * count / Math.Max(1, total), 4);
 }
 
-public sealed class SimilarityScorer
+public sealed class SimilarityScorer : ISimilarityScorer
 {
+    private readonly ScoringProfile _profile;
+
+    public SimilarityScorer(ScoringProfile? profile = null)
+    {
+        _profile = profile ?? new ScoringProfile();
+    }
+
     public ReferenceComparison Compare(SignatureMetrics query, ProcessedSignature queryImage, SignatureMetrics reference, ReferenceFeature referenceImage, SignatureVerificationOptions options)
     {
         var comparison = new ReferenceComparison
@@ -1403,7 +1456,7 @@ public sealed class SimilarityScorer
 
         comparison.QualityScore = QualityScore(query);
         comparison.Confidence = WeightedScore(comparison, options.Weights);
-        comparison.StructuralMismatchPenalty = StructuralMismatchPenalty(comparison);
+        comparison.StructuralMismatchPenalty = StructuralMismatchPenalty(comparison, _profile);
         comparison.QualityAdjustedScore = Math.Round(Math.Max(0, comparison.Confidence * (comparison.QualityScore / 100.0) - comparison.StructuralMismatchPenalty), 2);
         return comparison;
     }
@@ -1441,15 +1494,15 @@ public sealed class SimilarityScorer
         w.StructuralSimilarityScore * c.StructuralSimilarityScore +
         w.ConnectedComponentScore * c.ConnectedComponentScore, 2);
 
-    private static double StructuralMismatchPenalty(ReferenceComparison c)
+    private static double StructuralMismatchPenalty(ReferenceComparison c, ScoringProfile profile)
     {
         // Dense grid/pixel similarity can be misleading across different writing styles.
         // Require the shape-family signals to agree before allowing a borderline review score.
-        if (c.GeometryScore < 55 &&
-            c.ContourScore < 62 &&
-            c.ConnectedComponentScore < 65)
+        if (c.GeometryScore < profile.StructuralMismatchGeometryLimit &&
+            c.ContourScore < profile.StructuralMismatchContourLimit &&
+            c.ConnectedComponentScore < profile.StructuralMismatchComponentLimit)
         {
-            return 8;
+            return profile.StructuralMismatchPenalty;
         }
 
         return 0;
@@ -1513,7 +1566,7 @@ public sealed class SimilarityScorer
         return Math.Round(Math.Clamp(100 - total / count * 12, 0, 100), 2);
     }
 
-    private static double PixelSimilarity(Mat a, Mat b)
+    private double PixelSimilarity(Mat a, Mat b)
     {
         using var resized = new Mat();
         if (a.Size() != b.Size())
@@ -1526,24 +1579,23 @@ public sealed class SimilarityScorer
         }
 
         var best = RawPixelSimilarity(resized, b);
-        var offsets = new[] { -12, -6, 0, 6, 12 };
-        foreach (var dx in offsets)
+        foreach (var dx in _profile.PixelShiftOffsets)
         {
-            foreach (var dy in offsets)
+            foreach (var dy in _profile.PixelShiftOffsets)
             {
                 if (dx == 0 && dy == 0)
                 {
                     continue;
                 }
 
-                best = Math.Max(best, ShiftedPixelSimilarity(resized, b, dx, dy));
+                best = Math.Max(best, ShiftedPixelSimilarity(resized, b, dx, dy, _profile.PixelShiftMinimumOverlap));
             }
         }
 
         return Math.Round(best, 2);
     }
 
-    private static double ShiftedPixelSimilarity(Mat source, Mat target, int dx, int dy)
+    private static double ShiftedPixelSimilarity(Mat source, Mat target, int dx, int dy, double minimumOverlap)
     {
         var sourceX = Math.Max(0, dx);
         var sourceY = Math.Max(0, dy);
@@ -1557,7 +1609,7 @@ public sealed class SimilarityScorer
         }
 
         var overlapRatio = width * height / (double)(target.Width * target.Height);
-        if (overlapRatio < 0.75)
+        if (overlapRatio < minimumOverlap)
         {
             return 0;
         }
@@ -1577,7 +1629,7 @@ public sealed class SimilarityScorer
     private static double Average(params double[] values) => Math.Round(values.Length == 0 ? 0 : values.Average(), 2);
 }
 
-public sealed class DecisionEngine
+public sealed class DecisionEngine : IDecisionEngine
 {
     public SignatureDecision GetSignatureDecision(double confidence, SignatureMetrics metrics, SignatureVerificationOptions options)
     {
@@ -1632,7 +1684,7 @@ public sealed class DecisionEngine
 
 public sealed record SignatureDecision(string Decision, bool IsMatched, bool ReviewRequired);
 
-public sealed class ReasoningBuilder
+public sealed class ReasoningBuilder : IReasoningBuilder
 {
     public string Build(string decision, ReferenceComparison? comparison)
     {
@@ -1666,7 +1718,7 @@ public sealed class ReasoningBuilder
     }
 }
 
-public sealed class OcrLayoutParser
+public sealed class OcrLayoutParser : IOcrLayoutParser
 {
     public OcrLayout Parse(string? json, IReadOnlyList<PageImage> renderedPages, List<string> warnings)
     {
@@ -1807,7 +1859,7 @@ public sealed class OcrLayoutParser
         element.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.Number && prop.TryGetInt32(out var value) ? value : null;
 }
 
-public sealed class DebugImageWriter
+public sealed class DebugImageWriter : IDebugImageWriter
 {
     public Dictionary<string, string>? TryWrite(
         SignatureVerificationOptions options,
@@ -1874,7 +1926,7 @@ public sealed class ReferenceSignatureInput
 
     public static ReferenceSignatureInput FromJson(string json)
     {
-        var input = JsonSerializer.Deserialize<ReferenceSignatureInput>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? new ReferenceSignatureInput();
+        var input = JsonSerializer.Deserialize<ReferenceSignatureInput>(json, SignatureJsonOptions.Compact) ?? new ReferenceSignatureInput();
         input.ApplySignatureMappings();
         return input;
     }
@@ -1970,7 +2022,7 @@ public sealed class SignatureVerificationOptions
             return new SignatureVerificationOptions();
         }
 
-        return JsonSerializer.Deserialize<SignatureVerificationOptions>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? new SignatureVerificationOptions();
+        return JsonSerializer.Deserialize<SignatureVerificationOptions>(json, SignatureJsonOptions.Compact) ?? new SignatureVerificationOptions();
     }
 
     public PdfRenderOptions ToPdfRenderOptions() => new()

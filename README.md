@@ -10,6 +10,10 @@ It is not biometric identity verification. It does not use pressure, speed, stro
 - `StaticSignatureVerification.PdfRendering`: replaceable PDF rendering interfaces and `GhostscriptCommandLinePdfRenderer`.
 - `StaticSignatureVerification.TotalAgilityWrapper`: string-only wrapper for Tungsten/Kofax TotalAgility integration.
 - `StaticSignatureVerification.ConsoleTest`: CLI harness for PDFs/images/Base64 plus OCR, references, options, debug output, and JSON results.
+- `StaticSignatureVerification.Storage`: SQL Server storage contracts and repositories for results, review outcomes, reference lifecycle, cases, audit, retention, and export metadata.
+- `StaticSignatureVerification.Production`: production utilities for reference quality scoring, encrypted artifact storage, readiness checks, and export packaging.
+- `StaticSignatureVerification.Operations`: operations CLI for reference enrollment, approval, duplicate scans, case management, retention, purge, DR export, and setup checks.
+- `StaticSignatureVerification.Api`: authenticated REST API service for verification and production workflows.
 - `StaticSignatureVerification.Tests`: self-running unit test harness using synthetic images.
 
 ## Dependencies And Licensing
@@ -32,6 +36,69 @@ dotnet build .\StaticSignatureVerification.sln -c Release
 dotnet run --project .\StaticSignatureVerification.Tests\StaticSignatureVerification.Tests.csproj -c Release
 ```
 
+## Production Operations
+
+One-click Windows install for a target server:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\Install-SignatureVerification.ps1 `
+  -StorageMode Database `
+  -CreateStartupTask
+```
+
+The installer publishes the API and operations tools, initializes or upgrades SQL, creates runtime folders, writes production API configuration, generates an API key when one is not supplied, and optionally registers a Windows startup task. It detects Ghostscript but does not silently bundle it because Ghostscript licensing must be reviewed for each distribution.
+
+Run the prerequisite checker:
+
+```powershell
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- check-prereqs
+```
+
+Run the setup wizard:
+
+```powershell
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- setup-wizard
+```
+
+The setup wizard asks whether the install should run as `Hybrid` or `Database`.
+
+```powershell
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- setup-wizard --storageMode Hybrid
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- setup-wizard --storageMode Database
+```
+
+Use `Hybrid` when files remain on disk and SQL stores results/workflow records. Use `Database` when documents, reference images, debug artifacts, results, reviewer outcomes, cases, and audit records should be stored in SQL.
+
+Common production workflow commands:
+
+```powershell
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- enroll-reference --imageFile <path> --referenceSetId <id> --referenceId <id> --signatureId applicant_signature
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- approve-reference --referenceId <id> --actor <user>
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- scan-duplicates --threshold 92
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- create-case --caseNumber CASE-1001 --priority High
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- export-dr --outputFolder C:\Temp\SignatureVerification\Exports
+```
+
+Run the API service:
+
+```powershell
+$env:SIGNATURE_VERIFICATION_DB_CONNECTION = "Data Source=(localdb)\MSSQLLocalDB;Initial Catalog=SignatureVerification;Integrated Security=True;Encrypt=False;TrustServerCertificate=True;Application Name=SignatureVerification;"
+$env:SIGNATURE_API_KEYS = "<strong-random-key>:Administrator,ReferenceApprover,Reviewer,Auditor,Verifier"
+dotnet run --project .\StaticSignatureVerification.Api -c Release -- --urls http://127.0.0.1:5117
+```
+
+Secured API calls require `X-API-Key`. The API will not start unless `SIGNATURE_API_KEYS` or `SignatureVerification:ApiKeys` is configured. Use `X-Request-ID` for caller traceability.
+
+Use `POST /api/v1/verify` for hybrid calls that include `referenceSignaturesJson`. Use `POST /api/v1/verify-db-native` for DB-native calls where approved reference images are loaded from SQL by role/party/reference-set mapping.
+
+Open the administrative UI after the API is running:
+
+```text
+http://127.0.0.1:5117/admin
+```
+
+The UI uses the configured `X-API-Key` and provides operational views for readiness, storage mode, database counts, latest documents, references, case queue, retention policies, and audit events.
+
 ## Documentation
 
 Detailed documentation is split by audience:
@@ -40,6 +107,7 @@ Detailed documentation is split by audience:
 - [Business Documentation](docs/Business.md)
 - [Administration Guide](docs/Administration.md)
 - [Operations Runbook](docs/Operations.md)
+- [SQL Database Reference](docs/SQL-Database.md)
 
 Keep these documents updated when API contracts, configuration, reporting, or operational behavior changes. See [docs/README.md](docs/README.md) for the maintenance checklist.
 

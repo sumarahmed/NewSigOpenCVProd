@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\StaticSignatureVerification.Core\StaticSignatureVerification.Core.csproj" />
     <ProjectReference Include="..\StaticSignatureVerification.PdfRendering\StaticSignatureVerification.PdfRendering.csproj" />
+    <ProjectReference Include="..\StaticSignatureVerification.Storage\StaticSignatureVerification.Storage.csproj" />
     <ProjectReference Include="..\StaticSignatureVerification.TotalAgilityWrapper\StaticSignatureVerification.TotalAgilityWrapper.csproj" />
   </ItemGroup>
 

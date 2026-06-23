@@ -19,6 +19,13 @@ It supports faster review, clearer audit evidence, and better exception handling
 - Use reviewer feedback to generate threshold and reference-maintenance recommendations.
 - Generate daily, weekly, and monthly business statistics.
 - Generate reference usage and case drill-down reports.
+- Enroll, approve, reject, retire, and replace reference signatures with audit history.
+- Reject poor-quality reference signatures before they can be used.
+- Detect duplicate or suspiciously similar references across parties.
+- Manage review cases with assignment, priority, SLA, escalation, and completion tracking.
+- Run an authenticated production API service with API-key roles.
+- Use retention, purge, encrypted storage metadata, and disaster-recovery export workflows.
+- Choose hybrid storage or full DB-native storage during installation.
 
 ## Business Meaning Of A Match
 
@@ -32,6 +39,17 @@ It does not mean:
 - the signature was made by the owner of the reference
 
 The system should be used as operational decision support.
+
+## Storage Mode Choice
+
+During installation, choose one storage mode:
+
+| Mode | Business fit |
+| --- | --- |
+| `Hybrid` | Best for transition projects where customer documents and reference images are still managed in folders, while SQL stores results, audit, reviewer decisions, and workflow data. |
+| `Database` | Best for production operations that need documents, references, debug evidence, reviewer decisions, cases, and audit records managed in SQL instead of loose files. |
+
+DB-native mode gives cleaner governance for retention, backup, disaster recovery, access control, and audit because the processing evidence is stored with the workflow records.
 
 ## Role And Party Mapping
 
@@ -83,6 +101,8 @@ Reviewer outcomes:
 - `Rejected by reviewer`
 - `Needs second review`
 
+Reviewer outcomes can also be stored in SQL through the production API/operations storage layer, so review decisions are no longer limited to browser local storage or CSV files.
+
 Reason codes:
 
 - `Signature match acceptable`
@@ -106,6 +126,48 @@ The feedback tuning runner consumes that CSV and generates:
 - `reference-maintenance-actions.csv`
 
 The feedback loop is intentionally controlled. It recommends changes; it does not silently update production thresholds or reference libraries.
+
+## Reference Enrollment Workflow
+
+Production reference signatures should be enrolled through the controlled workflow:
+
+1. Add the reference image.
+2. Run quality scoring.
+3. Store the reference artifact, optionally encrypted.
+4. Record party ID, reference set, role, language, and source metadata.
+5. Approve or reject the reference.
+6. Use only approved references for matching.
+7. Retire or replace references when they become outdated.
+
+The workflow records who acted, when, why, and what changed.
+
+## Case Management Workflow
+
+Cases can be created for review-required, not-matched, missing-signature, quality, or business exception scenarios.
+
+Supported case management capabilities:
+
+- priority
+- assignment
+- due dates/SLA
+- branch/customer/document type metadata
+- escalation
+- completion
+- case event history
+- case management dashboard
+
+## Security And Compliance Workflow
+
+Production hardening capabilities now include:
+
+- API-key authentication
+- role-based access groups for administrator, reference approver, reviewer, auditor, and verifier
+- structured audit events
+- encrypted local reference artifact storage using Windows DPAPI
+- retention policy records
+- purge run audit records
+- disaster-recovery export packages
+- payload-safe logging guidance
 
 ## Business Reports
 
@@ -158,6 +220,16 @@ Reports help answer:
 - Debug image support.
 - Business reports and visual review queue.
 - Reviewer outcome capture.
+- Reviewer outcome database support.
+- Reference enrollment and approval workflow.
+- Reference quality gate.
+- Duplicate/wrong-person reference alert workflow.
+- Case management workflow and dashboard.
+- Authenticated production API service.
+- Prerequisite checker and setup wizard.
+- Structured audit logging.
+- Retention and purge governance.
+- Disaster-recovery export package workflow.
 - Feedback-based tuning recommendations.
 - Synthetic benchmark dataset and report.
 
@@ -174,4 +246,3 @@ Recommended acceptance evidence:
 - reference enrollment governance
 - operational logging/audit retention plan
 - TotalAgility integration test evidence
-
