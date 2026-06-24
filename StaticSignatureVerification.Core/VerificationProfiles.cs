@@ -33,6 +33,16 @@ public sealed class ScoringProfile
     public double StructuralMismatchContourLimit { get; set; } = 62;
     public double StructuralMismatchComponentLimit { get; set; } = 65;
     public double StructuralMismatchPenalty { get; set; } = 8;
+    public double HardRejectGeometryLimit { get; set; } = 80;
+    public double HardRejectDensityGridLimit { get; set; } = 80;
+    public double HardRejectContourLimit { get; set; } = 90;
+    public double HardRejectStructuralLimit { get; set; } = 95;
+    public double HardRejectScoreCap { get; set; } = 54;
+    public double RotationTolerantStructuralMinimum { get; set; } = 93;
+    public double RotationTolerantDensityGridMinimum { get; set; } = 80;
+    public double RotationTolerantContourMinimum { get; set; } = 70;
+    public double RotationTolerantSkeletonMinimum { get; set; } = 65;
+    public double RotationTolerantScoreFloor { get; set; } = 86;
     public double PixelShiftMinimumOverlap { get; set; } = 0.75;
     public int[] PixelShiftOffsets { get; set; } = new[] { -12, -6, 0, 6, 12 };
 }
@@ -43,4 +53,3 @@ public sealed class VerificationProfiles
     public PreprocessingProfile Preprocessing { get; set; } = new();
     public ScoringProfile Scoring { get; set; } = new();
 }
-

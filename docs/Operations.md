@@ -68,6 +68,50 @@ Or:
 dotnet run --project .\StaticSignatureVerification.Tests -c Release
 ```
 
+## Run Core Regression Pack
+
+Run the named 20-case core regression pack after code, threshold, preprocessing, scoring, PDF, mapping, or wrapper changes:
+
+```powershell
+dotnet run --project .\StaticSignatureVerification.Regression\StaticSignatureVerification.Regression.csproj -c Release -- --output=.verification\regression-pack
+```
+
+Expected current result:
+
+```text
+20 passed / 20 total
+```
+
+Outputs:
+
+- `.verification\regression-pack\regression-report.md`
+- `.verification\regression-pack\regression-results.csv`
+- `.verification\regression-pack\regression-results.json`
+- `.verification\regression-pack\assets`
+
+The pack includes:
+
+- `TC001_GenuineSignature_Match`
+- `TC002_DifferentSigner_NotMatch`
+- `TC003_EmptySignatureBox_NoSignatureFound`
+- `TC004_MultipleSignatures_BothMatched`
+- `TC005_MultipleSignatures_OneMatchedOneRejected`
+- `TC006_RotatedPage_DetectedAndMatched`
+- `TC007_SkewedPage_DetectedAndMatched`
+- `TC008_StampNearSignature_NotDetectedAsSignature`
+- `TC009_HandwritingNearSignature_NotFalsePositive`
+- `TC010_LowResolution_Review`
+- `TC011_CroppedSignature_ReviewOrReject`
+- `TC012_InvalidBase64_ReturnsErrorJson`
+- `TC013_CorruptPdf_ReturnsErrorJson`
+- `TC014_LargePdf_WithinLimits`
+- `TC015_NoReference_ReturnsErrorJson`
+- `TC016_TwoReferencesCorrectMapping`
+- `TC017_WrongReference_NotMatched`
+- `TC018_ReusedCopiedSignature_HighRiskFlag`
+- `TC019_BoxBorderRemovedCorrectly`
+- `TC020_TotalAgilityMethod_ReturnsValidJsonString`
+
 ## Run Customer Local Folder Test
 
 Prepare:
@@ -499,6 +543,21 @@ Fix:
 - check known zone coordinates
 - check PDF page rendering and `maxPages`
 - check OCR anchor labels
+
+### `REUSED_COPIED_SIGNATURE_HIGH_RISK`
+
+Cause: two different expected roles/signers contain a near-identical detected signature pattern.
+
+Fix:
+
+- review the document manually
+- confirm the same signature image was not copied into multiple boxes
+- verify role-to-party mapping is correct
+- keep the case in review or reject according to business policy
+
+### Unexpected `NotMatched` For A Different Signer
+
+This is expected when structural reject gates identify clear wrong-signer or wrong-reference evidence. Do not lower thresholds to override this without customer-labelled validation.
 
 ### Unexpected English/Chinese Reference Display
 

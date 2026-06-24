@@ -25,6 +25,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StaticSignatureVerification
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StaticSignatureVerification.Api", "StaticSignatureVerification.Api\StaticSignatureVerification.Api.csproj", "{B7CADFC2-A814-4DCC-BBD3-1560B94E9FF7}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StaticSignatureVerification.Regression", "StaticSignatureVerification.Regression\StaticSignatureVerification.Regression.csproj", "{76BBDF4B-E802-41A4-9CAA-51E56B93A8B9}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -167,6 +169,18 @@ Global
 		{B7CADFC2-A814-4DCC-BBD3-1560B94E9FF7}.Release|x64.Build.0 = Release|Any CPU
 		{B7CADFC2-A814-4DCC-BBD3-1560B94E9FF7}.Release|x86.ActiveCfg = Release|Any CPU
 		{B7CADFC2-A814-4DCC-BBD3-1560B94E9FF7}.Release|x86.Build.0 = Release|Any CPU
+		{76BBDF4B-E802-41A4-9CAA-51E56B93A8B9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{76BBDF4B-E802-41A4-9CAA-51E56B93A8B9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{76BBDF4B-E802-41A4-9CAA-51E56B93A8B9}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{76BBDF4B-E802-41A4-9CAA-51E56B93A8B9}.Debug|x64.Build.0 = Debug|Any CPU
+		{76BBDF4B-E802-41A4-9CAA-51E56B93A8B9}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{76BBDF4B-E802-41A4-9CAA-51E56B93A8B9}.Debug|x86.Build.0 = Debug|Any CPU
+		{76BBDF4B-E802-41A4-9CAA-51E56B93A8B9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{76BBDF4B-E802-41A4-9CAA-51E56B93A8B9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{76BBDF4B-E802-41A4-9CAA-51E56B93A8B9}.Release|x64.ActiveCfg = Release|Any CPU
+		{76BBDF4B-E802-41A4-9CAA-51E56B93A8B9}.Release|x64.Build.0 = Release|Any CPU
+		{76BBDF4B-E802-41A4-9CAA-51E56B93A8B9}.Release|x86.ActiveCfg = Release|Any CPU
+		{76BBDF4B-E802-41A4-9CAA-51E56B93A8B9}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

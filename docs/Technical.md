@@ -18,7 +18,8 @@ It is visual similarity software, not biometric identity proofing. It does not u
 - `StaticSignatureVerification.Production`: production utilities for reference quality scoring, encrypted artifact storage, readiness checks, and export packaging.
 - `StaticSignatureVerification.Operations`: administration CLI for reference lifecycle, case management, retention, purge, export, and setup checks.
 - `StaticSignatureVerification.Api`: authenticated REST API service for verification and production workflows.
-- `StaticSignatureVerification.Tests`: self-running regression test harness.
+- `StaticSignatureVerification.Tests`: self-running unit/integration test harness.
+- `StaticSignatureVerification.Regression`: named 20-case core regression pack that produces Markdown, CSV, JSON, and synthetic test assets.
 
 ## Application Service Layer
 
@@ -61,9 +62,10 @@ Shared infrastructure services:
    - OCR anchors
    - form box detection
    - handwriting-like ink regions
-8. Compare each candidate to the reference images for that exact signature set.
+8. Compare each candidate to the reference images for that exact signature set using normalized comparison metrics.
 9. Assign non-overlapping candidates to expected signature roles.
-10. Return result JSON with decisions, confidence, audit metrics, debug image paths, mapping metadata, warnings, and errors.
+10. Check copied-signature risk across detected roles.
+11. Return result JSON with decisions, confidence, audit metrics, debug image paths, mapping metadata, warnings, and errors.
 
 ## Matching Scope
 
@@ -229,6 +231,8 @@ Default thresholds:
 
 Thresholds are configurable in `optionsJson` and via wrapper parameters.
 
+Important: threshold changes should not be used to compensate for wrong-signer behavior. The engine includes structural reject gates so obvious mismatches can become `NotMatched` even when raw aggregate similarity would otherwise land in the review band.
+
 ## Scoring
 
 The engine extracts deterministic visual features:
@@ -243,6 +247,47 @@ The engine extracts deterministic visual features:
 - quality indicators
 
 The scorer also applies an audited structural mismatch penalty when shape-family signals strongly disagree. This reduces borderline review decisions for obvious cross-style mismatches, such as a Chinese-style form signature against an English reference set.
+
+Current scoring controls also include:
+
+- normalized binary metrics for both query and reference signatures, so known-zone crops and standalone reference images are compared on the same canvas basis
+- hard structural reject caps for clear wrong-signer/reference cases where geometry, density grid, contour, and structural evidence disagree
+- rotation/skew tolerant score flooring when structural, grid, contour, and skeleton evidence indicate the same signature despite page or scan angle
+
+These controls are profile-driven through `VerificationProfiles.Scoring`.
+
+## Copied Signature Risk
+
+After role assignment, the engine compares detected query signatures across different expected roles/signers. If two different roles contain a near-identical detected signature pattern, the engine adds:
+
+```text
+REUSED_COPIED_SIGNATURE_HIGH_RISK
+```
+
+The affected signature results are forced to `ReviewRequired`. This is intended to flag reused or copied signature images, for example the same ink pattern appearing for both applicant and witness roles.
+
+## Regression Pack
+
+Run the core regression pack:
+
+```powershell
+dotnet run --project .\StaticSignatureVerification.Regression\StaticSignatureVerification.Regression.csproj -c Release -- --output=.verification\regression-pack
+```
+
+The pack currently contains `TC001` through `TC020`, including genuine match, different signer, missing signature, multi-signature mapping, rotated/skewed pages, stamp/handwriting false-positive controls, low-resolution/cropped signatures, invalid Base64, corrupt PDF, large PDF, missing reference, wrong reference, copied-signature risk, box-border removal, and TotalAgility JSON validation.
+
+Expected current result:
+
+```text
+20 passed / 20 total
+```
+
+Generated artifacts:
+
+- `.verification\regression-pack\regression-report.md`
+- `.verification\regression-pack\regression-results.csv`
+- `.verification\regression-pack\regression-results.json`
+- `.verification\regression-pack\assets`
 
 ## PDF Rendering
 

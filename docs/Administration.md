@@ -220,6 +220,32 @@ Primary default classes:
 - `PdfRenderingOptions`: PDF rendering defaults.
 - `SignatureRoleOptions`: role names, role modes, and default role labels.
 - `ScoreWeights`: scoring weight distribution.
+- `VerificationProfiles.Scoring`: structural reject limits, rotation/skew tolerant scoring, copied-signature comparison sensitivity, and other algorithm profile constants.
+
+Do not lower thresholds simply to force more automatic matches. Wrong-signer and wrong-reference behavior is controlled by structural reject gates in the scorer. Threshold changes should be validated with the regression pack and with customer-labelled holdout documents.
+
+## Regression Administration
+
+Run the named core regression pack after changing thresholds, scoring profile defaults, detection behavior, preprocessing, TotalAgility mapping, PDF rendering, or reference handling:
+
+```powershell
+dotnet run --project .\StaticSignatureVerification.Regression\StaticSignatureVerification.Regression.csproj -c Release -- --output=.verification\regression-pack
+```
+
+Expected current result:
+
+```text
+20 passed / 20 total
+```
+
+Review:
+
+```text
+.verification\regression-pack\regression-report.md
+.verification\regression-pack\regression-results.csv
+```
+
+The regression pack uses synthetic assets and proves core behavior is stable. It does not replace customer sampling for threshold approval.
 
 ## Reference Folder Rules
 

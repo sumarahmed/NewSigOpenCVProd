@@ -15,6 +15,7 @@ It is not biometric identity verification. It does not use pressure, speed, stro
 - `StaticSignatureVerification.Operations`: operations CLI for reference enrollment, approval, duplicate scans, case management, retention, purge, DR export, and setup checks.
 - `StaticSignatureVerification.Api`: authenticated REST API service for verification and production workflows.
 - `StaticSignatureVerification.Tests`: self-running unit test harness using synthetic images.
+- `StaticSignatureVerification.Regression`: self-running 20-case core regression pack covering match, mismatch, missing signatures, multi-signature mapping, rotated/skewed pages, false-positive controls, PDF/error handling, copied-signature risk, box-border handling, and TotalAgility JSON output.
 
 ## Dependencies And Licensing
 
@@ -35,6 +36,19 @@ dotnet build .\StaticSignatureVerification.sln -c Release
 ```powershell
 dotnet run --project .\StaticSignatureVerification.Tests\StaticSignatureVerification.Tests.csproj -c Release
 ```
+
+Run the named core regression pack:
+
+```powershell
+dotnet run --project .\StaticSignatureVerification.Regression\StaticSignatureVerification.Regression.csproj -c Release -- --output=.verification\regression-pack
+```
+
+Expected output is `20 passed / 20 total`. The pack writes:
+
+- `.verification\regression-pack\regression-report.md`
+- `.verification\regression-pack\regression-results.csv`
+- `.verification\regression-pack\regression-results.json`
+- generated synthetic input/reference assets under `.verification\regression-pack\assets`
 
 ## Production Operations
 
@@ -111,6 +125,8 @@ Detailed documentation is split by audience:
 - [Production Readiness Review](docs/Production-Readiness-Review.md)
 
 Keep these documents updated when API contracts, configuration, reporting, or operational behavior changes. See [docs/README.md](docs/README.md) for the maintenance checklist.
+
+Current local verification status is summarized in [Production Readiness Review](docs/Production-Readiness-Review.md). As of 2026-06-25, the solution build, existing test harness, and 20-case regression pack pass locally; production approval still requires customer holdout sampling and operational DR evidence.
 
 ## Console Usage
 
@@ -427,6 +443,8 @@ Default decisions:
 - `NoSignatureDetected` or `InsufficientQuality`: requires review
 
 Audit JSON includes ink density, geometry, density grids, contour metrics, skeleton metrics, connected components, quality flags, candidate regions, preprocessing details, and all reference comparisons.
+
+The scorer also uses normalized comparison metrics, structural reject gates for clear wrong-signer/wrong-reference cases, and rotation/skew tolerant scoring for otherwise strong matches. If the same detected signature pattern appears across different expected roles/signers, the result includes `REUSED_COPIED_SIGNATURE_HIGH_RISK` and requires human review.
 
 ## Synthetic Benchmark Dataset
 

@@ -151,6 +151,7 @@ public sealed class StaticSignatureVerificationEngine
                 result.SignatureResults.Add(signatureResult);
             }
 
+            ApplyReusedCopiedSignatureRisk(result.SignatureResults, result.Warnings);
             result.SignatureCountDetected = result.SignatureResults.Count(r => r.SignatureDetected);
             result.OverallDecision = _decisionEngine.GetOverallDecision(result.SignatureResults);
             result.OverallConfidence = result.SignatureResults.Count == 0
@@ -325,7 +326,7 @@ public sealed class StaticSignatureVerificationEngine
                     var bytes = Convert.FromBase64String(reference.ImageBase64);
                     using var image = DocumentInputDetector.DecodeImageBytes(bytes, ImreadModes.Grayscale);
                     var processed = _preprocessor.Preprocess(image, options, reference.ReferenceId);
-                    var metrics = _featureExtractor.Extract(processed, processed.CleanBinary, 100);
+                    var metrics = _featureExtractor.Extract(processed, processed.NormalizedBinary, 100);
                     list.Add(new ReferenceFeature(reference.ReferenceId, reference.SourceFileName, reference.SourceFilePath, processed, metrics));
                 }
                 catch (Exception ex)
@@ -445,6 +446,108 @@ public sealed class StaticSignatureVerificationEngine
         return assignments;
     }
 
+    private static void ApplyReusedCopiedSignatureRisk(IReadOnlyList<SignatureResult> signatureResults, List<string> warnings)
+    {
+        for (var i = 0; i < signatureResults.Count; i++)
+        {
+            for (var j = i + 1; j < signatureResults.Count; j++)
+            {
+                var first = signatureResults[i];
+                var second = signatureResults[j];
+                if (!ShouldCompareForCopiedSignatureRisk(first, second))
+                {
+                    continue;
+                }
+
+                var similarity = QuerySignatureSimilarity(
+                    first.Audit!.QuerySignatureMetrics,
+                    second.Audit!.QuerySignatureMetrics);
+                if (similarity < 96)
+                {
+                    continue;
+                }
+
+                AddUniqueWarning(warnings, "REUSED_COPIED_SIGNATURE_HIGH_RISK");
+                MarkCopiedSignatureRisk(first);
+                MarkCopiedSignatureRisk(second);
+            }
+        }
+    }
+
+    private static bool ShouldCompareForCopiedSignatureRisk(SignatureResult first, SignatureResult second)
+    {
+        if (!first.SignatureDetected || !second.SignatureDetected || first.Audit is null || second.Audit is null)
+        {
+            return false;
+        }
+
+        if (string.Equals(first.SignatureId, second.SignatureId, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var firstSigner = first.Mapping?.ExpectedSignerId ?? first.Mapping?.ReferenceSetId ?? first.Mapping?.PartyId;
+        var secondSigner = second.Mapping?.ExpectedSignerId ?? second.Mapping?.ReferenceSetId ?? second.Mapping?.PartyId;
+        return string.IsNullOrWhiteSpace(firstSigner) ||
+               string.IsNullOrWhiteSpace(secondSigner) ||
+               !string.Equals(firstSigner, secondSigner, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void MarkCopiedSignatureRisk(SignatureResult result)
+    {
+        AddUniqueWarning(result.Warnings, "REUSED_COPIED_SIGNATURE_HIGH_RISK");
+        result.Decision = "ReviewRequired";
+        result.IsMatched = false;
+        result.ReviewRequired = true;
+        result.Reasoning = "The same detected signature pattern appears against more than one expected signer or role. Human review is required for copied-signature risk.";
+    }
+
+    private static void AddUniqueWarning(List<string> warnings, string warning)
+    {
+        if (!warnings.Contains(warning, StringComparer.OrdinalIgnoreCase))
+        {
+            warnings.Add(warning);
+        }
+    }
+
+    private static double QuerySignatureSimilarity(SignatureMetrics first, SignatureMetrics second) => Math.Round(Average(
+        GridSimilarity(first.DensityGrid16x8, second.DensityGrid16x8) * 0.35,
+        GridSimilarity(first.DensityGrid8x4, second.DensityGrid8x4) * 0.25,
+        RatioSimilarity(first.AspectRatio, second.AspectRatio, 0.25) * 0.15,
+        RatioSimilarity(first.SkeletonDensity, second.SkeletonDensity, 0.25) * 0.10,
+        RatioSimilarity(first.InkDensityPercent, second.InkDensityPercent, 0.25) * 0.10,
+        RatioSimilarity(first.ConnectedComponentCount, second.ConnectedComponentCount, 0.5) * 0.05) * 6, 2);
+
+    private static double GridSimilarity(IReadOnlyList<double> first, IReadOnlyList<double> second)
+    {
+        var count = Math.Min(first.Count, second.Count);
+        if (count == 0)
+        {
+            return 0;
+        }
+
+        var total = 0.0;
+        for (var i = 0; i < count; i++)
+        {
+            total += Math.Abs(first[i] - second[i]);
+        }
+
+        return Math.Clamp(100 - total / count * 6, 0, 100);
+    }
+
+    private static double RatioSimilarity(double first, double second, double tolerance)
+    {
+        if (Math.Abs(first) < double.Epsilon && Math.Abs(second) < double.Epsilon)
+        {
+            return 100;
+        }
+
+        var diff = Math.Abs(first - second) / Math.Max(Math.Max(Math.Abs(first), Math.Abs(second)), 1e-6);
+        return Math.Clamp(100 * (1 - diff / Math.Max(tolerance, 1e-6)), 0, 100);
+    }
+
+    private static double Average(params double[] values) => values.Length == 0 ? 0 : values.Average();
+
     private SignatureResult BuildSignatureResultFromEvaluation(
         ReferenceSignatureSet referenceSet,
         IReadOnlyList<DetectedCandidate> candidates,
@@ -549,7 +652,7 @@ public sealed class StaticSignatureVerificationEngine
             try
             {
                 processed = _preprocessor.Preprocess(candidate.Crop, options, candidate.Region.Source);
-                var metrics = _featureExtractor.Extract(processed, processed.CleanBinary, candidate.Region.RegionConfidence);
+                var metrics = _featureExtractor.Extract(processed, processed.NormalizedBinary, candidate.Region.RegionConfidence);
                 var comparisons = featureSet
                     .Select(reference => _scorer.Compare(metrics, processed, reference.Metrics, reference, options))
                     .OrderByDescending(c => c.QualityAdjustedScore)
@@ -1457,7 +1560,17 @@ public sealed class SimilarityScorer : ISimilarityScorer
         comparison.QualityScore = QualityScore(query);
         comparison.Confidence = WeightedScore(comparison, options.Weights);
         comparison.StructuralMismatchPenalty = StructuralMismatchPenalty(comparison, _profile);
-        comparison.QualityAdjustedScore = Math.Round(Math.Max(0, comparison.Confidence * (comparison.QualityScore / 100.0) - comparison.StructuralMismatchPenalty), 2);
+        var adjustedScore = Math.Max(0, comparison.Confidence * (comparison.QualityScore / 100.0) - comparison.StructuralMismatchPenalty);
+        if (IsHardStructuralMismatch(comparison, _profile))
+        {
+            adjustedScore = Math.Min(adjustedScore, _profile.HardRejectScoreCap);
+        }
+        else if (IsRotationTolerantMatch(comparison, _profile))
+        {
+            adjustedScore = Math.Max(adjustedScore, _profile.RotationTolerantScoreFloor);
+        }
+
+        comparison.QualityAdjustedScore = Math.Round(adjustedScore, 2);
         return comparison;
     }
 
@@ -1507,6 +1620,18 @@ public sealed class SimilarityScorer : ISimilarityScorer
 
         return 0;
     }
+
+    private static bool IsHardStructuralMismatch(ReferenceComparison c, ScoringProfile profile) =>
+        c.GeometryScore < profile.HardRejectGeometryLimit &&
+        c.DensityGridScore < profile.HardRejectDensityGridLimit &&
+        c.ContourScore < profile.HardRejectContourLimit &&
+        c.StructuralSimilarityScore < profile.HardRejectStructuralLimit;
+
+    private static bool IsRotationTolerantMatch(ReferenceComparison c, ScoringProfile profile) =>
+        c.StructuralSimilarityScore >= profile.RotationTolerantStructuralMinimum &&
+        c.DensityGridScore >= profile.RotationTolerantDensityGridMinimum &&
+        c.ContourScore >= profile.RotationTolerantContourMinimum &&
+        c.SkeletonScore >= profile.RotationTolerantSkeletonMinimum;
 
     private static double QualityScore(SignatureMetrics metrics)
     {

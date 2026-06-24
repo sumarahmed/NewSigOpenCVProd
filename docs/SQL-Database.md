@@ -121,6 +121,8 @@ SIGNATURE_VERIFICATION_DB_CONNECTION
 | `ssv.ThresholdProfile` | Approved threshold profiles. |
 | `ssv.vwReviewQueue` | SQL-backed review queue view. |
 
+Signature warnings such as `NO_SIGNATURE_DETECTED`, `INSUFFICIENT_SIGNATURE_QUALITY`, and `REUSED_COPIED_SIGNATURE_HIGH_RISK` are preserved in the signature result JSON and warning fields for review/audit reporting.
+
 ## Production Workflow Tables
 
 | Object | Purpose |

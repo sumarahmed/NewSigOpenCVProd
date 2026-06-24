@@ -22,6 +22,7 @@ It supports faster review, clearer audit evidence, and better exception handling
 - Enroll, approve, reject, retire, and replace reference signatures with audit history.
 - Reject poor-quality reference signatures before they can be used.
 - Detect duplicate or suspiciously similar references across parties.
+- Flag reused/copied signature patterns across different roles on the same document.
 - Manage review cases with assignment, priority, SLA, escalation, and completion tracking.
 - Run an authenticated production API service with API-key roles.
 - Use retention, purge, encrypted storage metadata, and disaster-recovery export workflows.
@@ -33,7 +34,7 @@ A `Matched` decision means the scanned ink is visually consistent with the suppl
 
 It does not mean:
 
-- the signer’s identity is legally proven
+- the signer's identity is legally proven
 - the document is not fraudulent
 - the signature was made live
 - the signature was made by the owner of the reference
@@ -145,6 +146,14 @@ The workflow records who acted, when, why, and what changed.
 
 Cases can be created for review-required, not-matched, missing-signature, quality, or business exception scenarios.
 
+Copied-signature risk is surfaced with:
+
+```text
+REUSED_COPIED_SIGNATURE_HIGH_RISK
+```
+
+This means the same or near-identical detected signature pattern appears against more than one expected role/signer. The affected signatures require human review even if one of the individual reference comparisons is visually strong.
+
 Supported case management capabilities:
 
 - priority
@@ -224,6 +233,7 @@ Reports help answer:
 - Reference enrollment and approval workflow.
 - Reference quality gate.
 - Duplicate/wrong-person reference alert workflow.
+- Reused/copied signature high-risk warning across roles.
 - Case management workflow and dashboard.
 - Authenticated production API service.
 - Prerequisite checker and setup wizard.
@@ -232,6 +242,7 @@ Reports help answer:
 - Disaster-recovery export package workflow.
 - Feedback-based tuning recommendations.
 - Synthetic benchmark dataset and report.
+- Named 20-case core regression pack with current local `20 / 20` pass evidence.
 
 ## Production Readiness Notes
 
@@ -240,6 +251,7 @@ Before production rollout, validate on representative customer documents and ref
 Recommended acceptance evidence:
 
 - real customer holdout test set
+- current `StaticSignatureVerification.Regression` report showing `20 / 20` pass before release
 - documented threshold selection
 - reviewer feedback sample
 - false accept and false reject analysis
