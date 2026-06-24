@@ -46,7 +46,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Install-SignatureVerification
   -CreateStartupTask
 ```
 
-The installer publishes the API and operations tools, initializes or upgrades SQL, creates runtime folders, writes production API configuration, generates an API key when one is not supplied, and optionally registers a Windows startup task. It detects Ghostscript but does not silently bundle it because Ghostscript licensing must be reviewed for each distribution.
+The installer publishes the API and operations tools, initializes or upgrades SQL, creates runtime folders, writes production API configuration, generates an API key when one is not supplied, and optionally registers a Windows startup task. It can detect Ghostscript and can install it only when explicitly requested with `-InstallGhostscript`.
 
 Run the prerequisite checker:
 
@@ -87,7 +87,7 @@ $env:SIGNATURE_API_KEYS = "<strong-random-key>:Administrator,ReferenceApprover,R
 dotnet run --project .\StaticSignatureVerification.Api -c Release -- --urls http://127.0.0.1:5117
 ```
 
-Secured API calls require `X-API-Key`. The API will not start unless `SIGNATURE_API_KEYS` or `SignatureVerification:ApiKeys` is configured. Use `X-Request-ID` for caller traceability.
+Secured API calls require `X-API-Key`. Bootstrap keys can be supplied with `SIGNATURE_API_KEYS` or `SignatureVerification:ApiKeys`; DB-managed keys can also be created through the Admin UI and are stored hashed in `ssv.ApiKeyRegistry`. Use `X-Request-ID` for caller traceability.
 
 Use `POST /api/v1/verify` for hybrid calls that include `referenceSignaturesJson`. Use `POST /api/v1/verify-db-native` for DB-native calls where approved reference images are loaded from SQL by role/party/reference-set mapping.
 
@@ -97,7 +97,7 @@ Open the administrative UI after the API is running:
 http://127.0.0.1:5117/admin
 ```
 
-The UI uses the configured `X-API-Key` and provides operational views for readiness, storage mode, database counts, latest documents, references, case queue, retention policies, and audit events.
+The UI uses the configured `X-API-Key` and provides operational views for readiness, storage mode, purge settings, database counts, latest documents, references, case queue, retention policies and purge runs, API keys, users/roles, templates/zones, threshold profiles, backup/export package requests, service status, and audit events.
 
 ## Documentation
 
@@ -108,6 +108,7 @@ Detailed documentation is split by audience:
 - [Administration Guide](docs/Administration.md)
 - [Operations Runbook](docs/Operations.md)
 - [SQL Database Reference](docs/SQL-Database.md)
+- [Production Readiness Review](docs/Production-Readiness-Review.md)
 
 Keep these documents updated when API contracts, configuration, reporting, or operational behavior changes. See [docs/README.md](docs/README.md) for the maintenance checklist.
 

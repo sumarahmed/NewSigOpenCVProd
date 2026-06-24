@@ -350,6 +350,11 @@ The production API is a minimal ASP.NET Core service with API-key authentication
 - retention purge trigger
 - readiness endpoint
 - case dashboard endpoint
+- browser-based Admin UI for settings, retention, API keys, users/roles, templates/zones, thresholds, backup/export requests, service status, and audit
+
+API keys can be loaded from process configuration (`SIGNATURE_API_KEYS` or `SignatureVerification:ApiKeys`) and from `ssv.ApiKeyRegistry`. DB-managed keys are compared by SHA-256 hash, can expire or be revoked, and update `LastUsedUtc` when used.
+
+Retention policy updates in the Admin UI are based on existing rows in `ssv.RetentionPolicy`; free-text policy creation is intentionally blocked in the UI and guarded by the API to reduce typo-created policies.
 
 The operations CLI uses the same production/storage layer, so local administration and API behavior share the same database contracts.
 

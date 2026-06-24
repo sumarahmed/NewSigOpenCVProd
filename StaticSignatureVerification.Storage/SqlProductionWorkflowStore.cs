@@ -378,20 +378,14 @@ INSERT INTO ssv.PurgeRun(Actor) VALUES(@Actor);
 SELECT CONVERT(bigint, SCOPE_IDENTITY());
 """, command => AddString(command, "@Actor", actor), cancellationToken).ConfigureAwait(false));
 
-        var candidates = new List<(long StorageObjectId, string Uri, string? EntityType, string? EntityId)>();
-        await using (var command = connection.CreateCommand())
+        var policies = await LoadRetentionPoliciesAsync(connection, cancellationToken).ConfigureAwait(false);
+        var candidates = new List<PurgeCandidate>();
+        await AddStorageObjectCandidatesAsync(connection, candidates, nowUtc, policies, cancellationToken).ConfigureAwait(false);
+        if (await GetSystemSettingAsync(connection, "DatabaseBlobPurgeEnabled", cancellationToken).ConfigureAwait(false) != "false")
         {
-            command.CommandText = """
-SELECT StorageObjectId, StorageUri, EntityType, EntityId
-FROM ssv.StorageObject
-WHERE RetainUntilUtc IS NOT NULL AND RetainUntilUtc <= @NowUtc;
-""";
-            AddDate(command, "@NowUtc", nowUtc);
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                candidates.Add((reader.GetInt64(0), reader.GetString(1), NullableString(reader, 2), NullableString(reader, 3)));
-            }
+            await AddDbBlobCandidatesAsync(connection, candidates, "DocumentBlob", "ssv.DocumentBlob", "DocumentBlobId", "DocumentResultId", nowUtc, policies, cancellationToken).ConfigureAwait(false);
+            await AddDbBlobCandidatesAsync(connection, candidates, "DebugArtifactBlob", "ssv.DebugArtifactBlob", "DebugArtifactBlobId", "DocumentResultId", nowUtc, policies, cancellationToken).ConfigureAwait(false);
+            await AddDbBlobCandidatesAsync(connection, candidates, "ReportBlob", "ssv.ReportBlob", "ReportBlobId", "ReportName", nowUtc, policies, cancellationToken).ConfigureAwait(false);
         }
 
         var purged = 0;
@@ -399,16 +393,16 @@ WHERE RetainUntilUtc IS NOT NULL AND RetainUntilUtc <= @NowUtc;
         foreach (var candidate in candidates)
         {
             var status = "Purged";
-            var message = "Metadata purged.";
+            var message = candidate.IsFilesystem ? "Metadata purged." : "Database blob purged.";
             try
             {
-                if (deleteFiles && File.Exists(candidate.Uri))
+                if (candidate.IsFilesystem && deleteFiles && !string.IsNullOrWhiteSpace(candidate.Uri) && File.Exists(candidate.Uri))
                 {
                     File.Delete(candidate.Uri);
                     message = "File and metadata purged.";
                 }
 
-                await NonQueryAsync(connection, null, "DELETE FROM ssv.StorageObject WHERE StorageObjectId = @StorageObjectId;", command => AddLong(command, "@StorageObjectId", candidate.StorageObjectId), cancellationToken).ConfigureAwait(false);
+                await NonQueryAsync(connection, null, candidate.DeleteSql, command => AddLong(command, "@Id", candidate.Id), cancellationToken).ConfigureAwait(false);
                 purged++;
             }
             catch (Exception ex)
@@ -424,7 +418,7 @@ VALUES(@PurgeRunId, @StorageObjectId, @EntityType, @EntityId, N'Purge', @Status,
 """, command =>
             {
                 AddLong(command, "@PurgeRunId", purgeRunId);
-                AddLong(command, "@StorageObjectId", candidate.StorageObjectId);
+                AddLong(command, "@StorageObjectId", null);
                 AddString(command, "@EntityType", candidate.EntityType);
                 AddString(command, "@EntityId", candidate.EntityId);
                 AddString(command, "@Status", status);
@@ -443,6 +437,100 @@ VALUES(@PurgeRunId, @StorageObjectId, @EntityType, @EntityId, N'Purge', @Status,
         }, cancellationToken).ConfigureAwait(false);
 
         return new PurgeRunResultRecord(purgeRunId, candidates.Count, purged, runStatus, error);
+    }
+
+    private static async Task<Dictionary<string, int>> LoadRetentionPoliciesAsync(SqlConnection connection, CancellationToken cancellationToken)
+    {
+        var policies = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        await using var command = connection.CreateCommand();
+        command.CommandTimeout = 120;
+        command.CommandText = """
+SELECT TargetObjectType, MIN(RetentionDays)
+FROM ssv.RetentionPolicy
+WHERE IsActive = 1
+GROUP BY TargetObjectType;
+""";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            policies[reader.GetString(0)] = reader.GetInt32(1);
+        }
+
+        return policies;
+    }
+
+    private static async Task<string?> GetSystemSettingAsync(SqlConnection connection, string settingKey, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandTimeout = 120;
+        command.CommandText = "SELECT SettingValue FROM ssv.SystemSetting WHERE SettingKey = @SettingKey;";
+        AddString(command, "@SettingKey", settingKey);
+        return Convert.ToString(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+    }
+
+    private static async Task AddStorageObjectCandidatesAsync(SqlConnection connection, List<PurgeCandidate> candidates, DateTimeOffset nowUtc, IReadOnlyDictionary<string, int> policies, CancellationToken cancellationToken)
+    {
+        policies.TryGetValue("StorageObject", out var retentionDays);
+        var cutoffUtc = retentionDays > 0 ? nowUtc.AddDays(-retentionDays) : (DateTimeOffset?)null;
+        await using var command = connection.CreateCommand();
+        command.CommandTimeout = 120;
+        command.CommandText = """
+SELECT StorageObjectId, StorageUri, EntityType, EntityId
+FROM ssv.StorageObject
+WHERE (RetainUntilUtc IS NOT NULL AND RetainUntilUtc <= @NowUtc)
+   OR (@CutoffUtc IS NOT NULL AND CreatedUtc <= @CutoffUtc);
+""";
+        AddDate(command, "@NowUtc", nowUtc);
+        AddDate(command, "@CutoffUtc", cutoffUtc);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            candidates.Add(new PurgeCandidate(
+                "StorageObject",
+                reader.GetInt64(0),
+                reader.GetString(1),
+                NullableString(reader, 2) ?? "StorageObject",
+                NullableString(reader, 3),
+                true,
+                "DELETE FROM ssv.StorageObject WHERE StorageObjectId = @Id;"));
+        }
+    }
+
+    private static async Task AddDbBlobCandidatesAsync(
+        SqlConnection connection,
+        List<PurgeCandidate> candidates,
+        string targetObjectType,
+        string tableName,
+        string idColumn,
+        string entityIdColumn,
+        DateTimeOffset nowUtc,
+        IReadOnlyDictionary<string, int> policies,
+        CancellationToken cancellationToken)
+    {
+        policies.TryGetValue(targetObjectType, out var retentionDays);
+        var cutoffUtc = retentionDays > 0 ? nowUtc.AddDays(-retentionDays) : (DateTimeOffset?)null;
+        await using var command = connection.CreateCommand();
+        command.CommandTimeout = 120;
+        command.CommandText = $"""
+SELECT {idColumn}, CONVERT(nvarchar(128), {entityIdColumn}) AS EntityId
+FROM {tableName}
+WHERE (RetainUntilUtc IS NOT NULL AND RetainUntilUtc <= @NowUtc)
+   OR (@CutoffUtc IS NOT NULL AND CreatedUtc <= @CutoffUtc);
+""";
+        AddDate(command, "@NowUtc", nowUtc);
+        AddDate(command, "@CutoffUtc", cutoffUtc);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            candidates.Add(new PurgeCandidate(
+                targetObjectType,
+                reader.GetInt64(0),
+                null,
+                targetObjectType,
+                NullableString(reader, 1) ?? reader.GetInt64(0).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                false,
+                $"DELETE FROM {tableName} WHERE {idColumn} = @Id;"));
+        }
     }
 
     public async Task<long> CreateExportPackageAsync(ExportPackageRecord exportPackage, CancellationToken cancellationToken = default)
@@ -621,6 +709,15 @@ SELECT CONVERT(bigint, SCOPE_IDENTITY());
         var parameter = command.Parameters.Add(name, SqlDbType.DateTimeOffset);
         parameter.Value = value.HasValue ? value.Value : DBNull.Value;
     }
+
+    private sealed record PurgeCandidate(
+        string Source,
+        long Id,
+        string? Uri,
+        string? EntityType,
+        string? EntityId,
+        bool IsFilesystem,
+        string DeleteSql);
 
     private static string? NullableString(SqlDataReader reader, int ordinal) =>
         reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);

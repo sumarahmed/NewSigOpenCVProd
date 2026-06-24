@@ -178,7 +178,7 @@ static async Task CreateCase(Cli cli, SqlProductionWorkflowStore store)
         Branch: cli.Get("--branch"),
         CustomerId: cli.Get("--customerId"),
         DocumentType: cli.Get("--documentType"),
-        CaseJson: JsonSerializer.Serialize(cli.Values, SignatureJsonOptions.Compact)));
+        CaseJson: JsonSerializer.Serialize(SanitizedCliValues(cli), SignatureJsonOptions.Compact)));
     Console.WriteLine($"Review case created: {caseNumber} ({id})");
 }
 
@@ -202,7 +202,7 @@ static async Task SetRetention(Cli cli, SqlProductionWorkflowStore store)
         RetentionDays: cli.Int("--retentionDays", 90),
         IsActive: !cli.Bool("--inactive", false),
         CreatedBy: cli.Get("--actor") ?? Environment.UserName,
-        PolicyJson: JsonSerializer.Serialize(cli.Values, SignatureJsonOptions.Compact)));
+        PolicyJson: JsonSerializer.Serialize(SanitizedCliValues(cli), SignatureJsonOptions.Compact)));
     Console.WriteLine($"Retention policy saved: {id}");
 }
 
@@ -293,6 +293,22 @@ static async Task<string> DumpTable(string connectionString, string table)
 {
     var rows = await QueryRows(connectionString, $"SELECT * FROM ssv.{table};");
     return JsonSerializer.Serialize(rows, SignatureJsonOptions.Indented);
+}
+
+static IReadOnlyDictionary<string, string> SanitizedCliValues(Cli cli)
+{
+    var sensitiveKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "--connectionString",
+        "--apiKey",
+        "--password",
+        "--secret",
+        "--token"
+    };
+
+    return cli.Values
+        .Where(pair => !sensitiveKeys.Contains(pair.Key))
+        .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
 }
 
 static async Task<List<Dictionary<string, object?>>> QueryRows(string connectionString, string sql)

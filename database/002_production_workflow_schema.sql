@@ -488,7 +488,8 @@ USING (VALUES
     (N'Administrator', N'Can configure system settings, retention policies, templates, and users.'),
     (N'ReferenceApprover', N'Can approve, retire, and replace reference signatures.'),
     (N'Reviewer', N'Can review signature cases and record reviewer outcomes.'),
-    (N'Auditor', N'Can inspect audit records and export governance evidence.')
+    (N'Auditor', N'Can inspect audit records and export governance evidence.'),
+    (N'Verifier', N'Can submit verification requests through the production API.')
 ) AS source(RoleName, Description)
 ON target.RoleName = source.RoleName
 WHEN NOT MATCHED THEN INSERT(RoleName, Description) VALUES(source.RoleName, source.Description);

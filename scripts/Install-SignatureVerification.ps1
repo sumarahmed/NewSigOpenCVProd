@@ -130,12 +130,8 @@ function Protect-SecretFile([string]$path) {
     }
 }
 
-function New-AppSettings([string]$apiPublishFolder, [string]$databaseConnection, [string]$apiKeyConfig) {
+function New-AppSettings([string]$apiPublishFolder) {
     $settings = [ordered]@{
-        SignatureVerification = [ordered]@{
-            ConnectionString = $databaseConnection
-            ApiKeys = $apiKeyConfig
-        }
         Logging = [ordered]@{
             LogLevel = [ordered]@{
                 Default = "Information"
@@ -148,13 +144,15 @@ function New-AppSettings([string]$apiPublishFolder, [string]$databaseConnection,
     $settings | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $path -Encoding UTF8
 }
 
-function New-Launcher([string]$scriptsFolder, [string]$apiFolder, [string]$opsFolder, [string]$apiKeyConfig, [string]$databaseConnection, [string]$runtimeRoot, [string]$urls) {
+function New-Launcher([string]$scriptsFolder, [string]$apiFolder, [string]$opsFolder, [string]$secretFile, [string]$connectionSecretFile, [string]$runtimeRoot, [string]$urls) {
     $launcher = Join-Path $scriptsFolder "Start-SignatureVerificationApi.ps1"
     $content = @"
 `$ErrorActionPreference = "Stop"
 `$env:ASPNETCORE_ENVIRONMENT = "Production"
-`$env:SIGNATURE_API_KEYS = "$apiKeyConfig"
-`$env:SIGNATURE_VERIFICATION_DB_CONNECTION = "$databaseConnection"
+`$apiKey = (Get-Content -LiteralPath "$secretFile" -Raw).Trim()
+`$databaseConnection = (Get-Content -LiteralPath "$connectionSecretFile" -Raw).Trim()
+`$env:SIGNATURE_API_KEYS = "`$apiKey`:Administrator,ReferenceApprover,Reviewer,Auditor,Verifier"
+`$env:SIGNATURE_VERIFICATION_DB_CONNECTION = `$databaseConnection
 `$env:SIGNATURE_VERIFICATION_ROOT = "$runtimeRoot"
 Set-Location "$apiFolder"
 & dotnet "$apiFolder\StaticSignatureVerification.Api.dll" --urls "$urls"
@@ -165,7 +163,8 @@ Set-Location "$apiFolder"
     $opsContent = @"
 param([Parameter(ValueFromRemainingArguments=`$true)][string[]]`$Arguments)
 `$ErrorActionPreference = "Stop"
-`$env:SIGNATURE_VERIFICATION_DB_CONNECTION = "$databaseConnection"
+`$databaseConnection = (Get-Content -LiteralPath "$connectionSecretFile" -Raw).Trim()
+`$env:SIGNATURE_VERIFICATION_DB_CONNECTION = `$databaseConnection
 `$env:SIGNATURE_VERIFICATION_ROOT = "$runtimeRoot"
 & dotnet "$opsFolder\StaticSignatureVerification.Operations.dll" @Arguments
 "@
@@ -196,7 +195,6 @@ $logsFolder = Join-Path $InstallRoot "logs"
 $secretFolder = Join-Path $InstallRoot "secrets"
 $databaseConnection = if ($ConnectionString -match "Initial Catalog") { $ConnectionString } else { "$ConnectionString;Initial Catalog=$DatabaseName" }
 $apiKeyValue = if ([string]::IsNullOrWhiteSpace($ApiKey)) { New-ApiKey } else { $ApiKey }
-$apiKeyConfig = "$apiKeyValue`:Administrator,ReferenceApprover,Reviewer,Auditor,Verifier"
 
 Write-Step "Preparing install folders"
 foreach ($folder in @($InstallRoot, $publishRoot, $apiPublish, $opsPublish, $scriptsInstall, $configFolder, $logsFolder, $secretFolder, $RuntimeRoot)) {
@@ -215,10 +213,13 @@ if (-not $SkipPublish) {
 }
 
 Write-Step "Creating runtime configuration"
-New-AppSettings $apiPublish $databaseConnection $apiKeyConfig
+New-AppSettings $apiPublish
 $secretFile = Join-Path $secretFolder "api-key.txt"
 Set-Content -LiteralPath $secretFile -Value $apiKeyValue -Encoding UTF8
 Protect-SecretFile $secretFile
+$connectionSecretFile = Join-Path $secretFolder "database-connection.txt"
+Set-Content -LiteralPath $connectionSecretFile -Value $databaseConnection -Encoding UTF8
+Protect-SecretFile $connectionSecretFile
 
 Copy-Item -LiteralPath (Join-Path $repoRoot "scripts\Initialize-Database.ps1") -Destination $scriptsInstall -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "database") -Destination (Join-Path $InstallRoot "database") -Recurse -Force
@@ -237,7 +238,7 @@ Write-Step "Running setup wizard"
     --storageMode $StorageMode
 if ($LASTEXITCODE -ne 0) { throw "Operations setup failed." }
 
-$launcher = New-Launcher $scriptsInstall $apiPublish $opsPublish $apiKeyConfig $databaseConnection $RuntimeRoot $Urls
+$launcher = New-Launcher $scriptsInstall $apiPublish $opsPublish $secretFile $connectionSecretFile $RuntimeRoot $Urls
 
 if ($CreateStartupTask) {
     Register-StartupTask $launcher $InstallRoot

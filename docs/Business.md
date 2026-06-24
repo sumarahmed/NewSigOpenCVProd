@@ -246,3 +246,6 @@ Recommended acceptance evidence:
 - reference enrollment governance
 - operational logging/audit retention plan
 - TotalAgility integration test evidence
+- disaster recovery evidence: SQL backups, filesystem/config/secret recovery, restore drill results, and approved RPO/RTO
+
+Replication of SQL and filesystem storage is helpful for availability, but it is not enough by itself. Replication can copy accidental deletion, corruption, or ransomware-encrypted data. Production approval should include independent point-in-time backups, restore drills, protected backup copies, documented ownership, monitoring, and a recovery runbook.

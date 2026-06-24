@@ -39,9 +39,10 @@ The installer:
 - creates runtime folders and `database-connection.txt`
 - writes production API configuration
 - creates a generated API key in `secrets\api-key.txt` when `-ApiKey` is not supplied
+- writes the database connection string to `secrets\database-connection.txt`
 - optionally registers the `StaticSignatureVerificationApi` Windows startup task
 
-Ghostscript is detected but not silently bundled because its licensing must be reviewed before redistribution.
+The installer ACL-restricts generated secret files to Administrators, SYSTEM, and the installing user. Generated launcher scripts read secrets at runtime instead of embedding raw API keys or connection strings. Ghostscript is detected but not silently bundled because its licensing must be reviewed before redistribution.
 
 After install, start manually if a startup task was not registered:
 
@@ -370,7 +371,7 @@ X-API-Key: <configured key>
 X-Request-ID: <caller request id>
 ```
 
-The API fails startup if no key configuration is supplied through `SIGNATURE_API_KEYS` or `SignatureVerification:ApiKeys`.
+If no bootstrap key is supplied through `SIGNATURE_API_KEYS` or `SignatureVerification:ApiKeys`, the API starts with a warning and authorization depends on valid DB-managed keys in `ssv.ApiKeyRegistry`. For a fresh install, provide a bootstrap key or use the installer-generated key so the first administrator can sign in and create/revoke DB-managed keys.
 
 Core endpoints:
 
@@ -392,6 +393,24 @@ Core endpoints:
 - `GET /api/v1/admin/summary`
 - `GET /api/v1/admin/settings`
 - `PUT /api/v1/admin/settings/storage-mode`
+- `PUT /api/v1/admin/settings/purge`
+- `POST /api/v1/admin/retention/purge`
+- `GET /api/v1/admin/api-keys`
+- `POST /api/v1/admin/api-keys`
+- `POST /api/v1/admin/api-keys/{apiKeyId}/revoke`
+- `GET /api/v1/admin/roles`
+- `GET /api/v1/admin/users`
+- `POST /api/v1/admin/users/roles`
+- `POST /api/v1/admin/users/roles/{securityPrincipalRoleId}/revoke`
+- `GET /api/v1/admin/templates`
+- `POST /api/v1/admin/templates`
+- `GET /api/v1/admin/templates/{formTemplateId}/zones`
+- `POST /api/v1/admin/templates/{formTemplateId}/zones`
+- `GET /api/v1/admin/threshold-profiles`
+- `POST /api/v1/admin/threshold-profiles`
+- `GET /api/v1/admin/export-packages`
+- `POST /api/v1/admin/export-packages`
+- `GET /api/v1/admin/service-status`
 - `GET /api/v1/admin/references`
 - `GET /api/v1/admin/cases`
 - `GET /api/v1/admin/retention`
@@ -401,6 +420,21 @@ Core endpoints:
 The API writes structured JSON logs to stdout and stores operational audit events in SQL. Do not configure logs to capture document Base64 or reference image Base64.
 
 Use `POST /api/v1/verify` for hybrid integrations where the caller provides `referenceSignaturesJson`. Use `POST /api/v1/verify-db-native` when `StorageMode = Database`; that endpoint accepts document bytes and mapping IDs, then loads approved reference images from SQL.
+
+Admin API key notes:
+
+- Bootstrap keys are configured with `SIGNATURE_API_KEYS` or `SignatureVerification:ApiKeys`.
+- DB-managed keys are created through the Admin UI/API and stored in `ssv.ApiKeyRegistry` as hashes.
+- The generated `ssv_...` value is the secret. The key name is only a label.
+- The raw secret is shown once; store it in the approved secret vault.
+- The Admin UI stores the entered key only in browser session storage.
+
+Admin retention notes:
+
+- Retention policy names come from `ssv.RetentionPolicy`.
+- The Admin UI uses a dropdown for policy names and read-only target object type to avoid typo-created policies.
+- File purge and DB-native blob purge are controlled separately in Admin Settings.
+- `/api/v1/admin/retention/purge` follows those settings; `/api/v1/retention/purge` follows the request body.
 
 ## Operational Monitoring
 
@@ -477,6 +511,26 @@ The engine compares the form signature against the expected mapped reference set
 
 If production mapping is wrong, fix the `signatureMappings`/reference set data from TotalAgility or the reference system.
 
+### Runtime Folder Access Denied
+
+Cause: the service identity or operator account cannot write to the configured runtime root. The prerequisite checker tests write access by creating temporary `.write-test-*` files.
+
+Fix:
+
+- confirm `SIGNATURE_VERIFICATION_ROOT` points to the intended runtime folder
+- grant the API service identity modify rights to `Input`, `Output`, `ReferenceSignatures`, `ReferenceStore`, report/export folders, and transient debug folders
+- rerun `check-prereqs`
+
+### LocalDB Automatic Instance Failure
+
+Cause: LocalDB is per-user and depends on user-profile registry state. It can fail when run from a different elevation context, service account, corrupted user instance registry, or locked profile.
+
+Fix:
+
+- for local development, recreate/repair the LocalDB instance and rerun database initialization
+- run local API and database tools under the same user/elevation context
+- for production, use a real SQL Server instance or approved managed SQL service instead of LocalDB
+
 ## Cleanup
 
 Clean synthetic data:
@@ -512,4 +566,5 @@ Do not delete `Input` or `ReferenceSignatures` unless you intend to remove sourc
 - Thresholds are reviewed and approved.
 - Reviewer feedback process is documented.
 - Logs/audit retention approach is approved.
+- SQL and filesystem replication are configured where required, and independent backups, restore drills, RPO/RTO, config/secret backup, and service recovery runbooks are approved.
 - Customer data is excluded from source control.

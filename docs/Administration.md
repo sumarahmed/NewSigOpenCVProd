@@ -69,13 +69,21 @@ The UI uses the same `X-API-Key` role model as the API. Administrator keys can c
 Current UI areas:
 
 - overview, readiness, database counts, latest documents
-- settings and storage mode
+- settings, storage mode, file purge, and database blob purge
 - reference registry
 - case queue
-- retention policies
+- retention policies, selected from `ssv.RetentionPolicy` to avoid typo-created policies
+- API key creation/revocation using hashed DB-managed keys in `ssv.ApiKeyRegistry`
+- security roles and principal role assignments
+- form templates and signature zones
+- threshold profiles
+- backup/export package requests
+- service status
 - audit events
 
-The UI does not store API keys in the database. Browser key storage uses local browser storage on the administrator workstation.
+API key authentication supports both configured process keys from `SIGNATURE_API_KEYS` or `SignatureVerification:ApiKeys` and DB-managed keys in `ssv.ApiKeyRegistry`. DB-managed keys are stored as SHA-256 hashes; the raw generated key is shown only once at creation time. The Admin UI keeps the entered key in browser session storage, not durable local storage.
+
+Retention policy names come from `ssv.RetentionPolicy`. The Admin UI presents them as a dropdown and treats target object type as read-only for updates. Create intentional new policy names through controlled database migration or the operations CLI, then use the UI to maintain days and active/inactive state.
 
 ### Most Common Local Changes
 
@@ -450,11 +458,16 @@ Main administration files:
 ```text
 database\001_initial_schema.sql
 database\002_production_workflow_schema.sql
+database\003_workflow_schema_fixups.sql
+database\004_database_native_storage.sql
+database\005_admin_retention_security.sql
+database\006_seed_verifier_role.sql
 scripts\Initialize-Database.ps1
 scripts\Import-VerificationResultsToDatabase.ps1
 scripts\Export-DatabaseReviewQueue.ps1
 StaticSignatureVerification.Storage\StorageContracts.cs
 StaticSignatureVerification.Storage\SqlVerificationResultStore.cs
+StaticSignatureVerification.Storage\SqlProductionWorkflowStore.cs
 ```
 
 Configure runtime database writes with one of:
@@ -467,6 +480,8 @@ SIGNATURE_VERIFICATION_DB_CONNECTION
 ```
 
 Use `Encrypt=False;TrustServerCertificate=True` for the current LocalDB instance. Use production-approved encryption settings for shared SQL Server environments.
+
+LocalDB is a development convenience and is not a production database host. Production deployments should use a managed/shared SQL Server instance, a fixed service identity, tested connectivity from the API host, and approved SQL encryption/backup settings.
 
 Migration status is tracked in:
 
@@ -481,8 +496,9 @@ Production workflow tables are now available for:
 - reviewer case assignment, SLA, escalation, and case events
 - security roles and role assignments
 - structured audit events
+- hashed API key registry
 - encrypted storage metadata
-- retention policies and purge runs
+- default retention policies, purge settings, and purge runs
 - disaster recovery/export package tracking
 
 ## Production Workflow Administration
@@ -512,12 +528,25 @@ Retention and export:
 - `purge`
 - `export-dr`
 
+Default production retention policies installed by migration `005_admin_retention_security`:
+
+| Policy | Target object type | Days |
+| --- | --- | --- |
+| `DefaultStorageObjectRetention` | `StorageObject` | 2555 |
+| `DefaultDocumentBlobRetention` | `DocumentBlob` | 2555 |
+| `DefaultDebugArtifactBlobRetention` | `DebugArtifactBlob` | 90 |
+| `DefaultReportBlobRetention` | `ReportBlob` | 2555 |
+
+The legacy/local `DebugArtifacts90Days` policy may also exist when created through the operations CLI.
+
 Security:
 
-- API authentication is API-key based using `SIGNATURE_API_KEYS`; the API fails startup if no key configuration is supplied.
+- API authentication is API-key based. Bootstrap keys come from `SIGNATURE_API_KEYS` or `SignatureVerification:ApiKeys`; DB-managed keys are stored hashed in `ssv.ApiKeyRegistry`.
 - API keys map to roles: `Administrator`, `ReferenceApprover`, `Reviewer`, `Auditor`, `Verifier`.
 - API logs are structured JSON and must remain payload-safe.
 - Reference image storage uses Windows DPAPI when `--encrypt true`.
+- Installer-generated API keys and database connection strings are written under the install `secrets` folder and ACL-restricted to Administrators, SYSTEM, and the installing user.
+- Treat debug images, DB-native document/reference/debug blobs, review exports, and generated result JSON as sensitive operational data.
 
 ## Cleaning Synthetic Data
 
