@@ -1,0 +1,622 @@
+{
+  "root": "C:\\Users\\Syed.Ahmed\\OneDrive - Tungsten Automation, Corp\\Documents\\NewSigOpenCVProd\\.verification\\synthetic-benchmark-calibrated",
+  "generatedUtc": "2026-06-23T13:43:38.8072597+00:00",
+  "totalDocuments": 20,
+  "totalSignatures": 40,
+  "trueAccepts": 6,
+  "trueRejects": 6,
+  "correctMissing": 3,
+  "correctReviews": 1,
+  "dangerousFalseAccepts": 1,
+  "hardFalseRejects": 9,
+  "acceptNeedsReview": 7,
+  "rejectNeedsReview": 3,
+  "missingNeedsReview": 1,
+  "detectedSignatures": 37,
+  "reviewDecisions": 12,
+  "detectionRate": 1,
+  "dangerousFalseAcceptRate": 0.07142857142857142,
+  "hardFalseRejectRate": 0.4090909090909091,
+  "autoAcceptRecall": 0.2727272727272727,
+  "missingNeedsReviewRate": 0.25,
+  "reviewRate": 0.3,
+  "averagePositiveConfidence": 62.23,
+  "averageNegativeConfidence": 54.51,
+  "averageDocumentProcessingMs": 111.47,
+  "p50DocumentProcessingMs": 75.28,
+  "p95DocumentProcessingMs": 249.13,
+  "totalProcessingMs": 2229.46,
+  "suggestedMatchedThreshold": 72.6,
+  "suggestedProbableThreshold": 67.77,
+  "suggestedReviewThreshold": 62.94,
+  "runMatchedThresholdOverride": 69.98,
+  "runProbableThresholdOverride": 65.68,
+  "runReviewThresholdOverride": 61.37,
+  "thresholdSweep": [
+    {
+      "matchedThreshold": 27,
+      "trueAccepts": 22,
+      "acceptNotAutoAccepted": 0,
+      "dangerousFalseAccepts": 11,
+      "autoAcceptRecall": 1,
+      "dangerousFalseAcceptRate": 0.7857142857142857
+    },
+    {
+      "matchedThreshold": 38,
+      "trueAccepts": 22,
+      "acceptNotAutoAccepted": 0,
+      "dangerousFalseAccepts": 10,
+      "autoAcceptRecall": 1,
+      "dangerousFalseAcceptRate": 0.7142857142857143
+    },
+    {
+      "matchedThreshold": 42,
+      "trueAccepts": 22,
+      "acceptNotAutoAccepted": 0,
+      "dangerousFalseAccepts": 9,
+      "autoAcceptRecall": 1,
+      "dangerousFalseAcceptRate": 0.6428571428571429
+    },
+    {
+      "matchedThreshold": 44,
+      "trueAccepts": 22,
+      "acceptNotAutoAccepted": 0,
+      "dangerousFalseAccepts": 8,
+      "autoAcceptRecall": 1,
+      "dangerousFalseAcceptRate": 0.5714285714285714
+    },
+    {
+      "matchedThreshold": 45,
+      "trueAccepts": 20,
+      "acceptNotAutoAccepted": 2,
+      "dangerousFalseAccepts": 8,
+      "autoAcceptRecall": 0.9090909090909091,
+      "dangerousFalseAcceptRate": 0.5714285714285714
+    },
+    {
+      "matchedThreshold": 47,
+      "trueAccepts": 20,
+      "acceptNotAutoAccepted": 2,
+      "dangerousFalseAccepts": 8,
+      "autoAcceptRecall": 0.9090909090909091,
+      "dangerousFalseAcceptRate": 0.5714285714285714
+    },
+    {
+      "matchedThreshold": 49,
+      "trueAccepts": 20,
+      "acceptNotAutoAccepted": 2,
+      "dangerousFalseAccepts": 7,
+      "autoAcceptRecall": 0.9090909090909091,
+      "dangerousFalseAcceptRate": 0.5
+    },
+    {
+      "matchedThreshold": 50,
+      "trueAccepts": 19,
+      "acceptNotAutoAccepted": 3,
+      "dangerousFalseAccepts": 7,
+      "autoAcceptRecall": 0.8636363636363636,
+      "dangerousFalseAcceptRate": 0.5
+    },
+    {
+      "matchedThreshold": 53,
+      "trueAccepts": 18,
+      "acceptNotAutoAccepted": 4,
+      "dangerousFalseAccepts": 7,
+      "autoAcceptRecall": 0.8181818181818182,
+      "dangerousFalseAcceptRate": 0.5
+    },
+    {
+      "matchedThreshold": 54,
+      "trueAccepts": 17,
+      "acceptNotAutoAccepted": 5,
+      "dangerousFalseAccepts": 7,
+      "autoAcceptRecall": 0.7727272727272727,
+      "dangerousFalseAcceptRate": 0.5
+    },
+    {
+      "matchedThreshold": 55,
+      "trueAccepts": 16,
+      "acceptNotAutoAccepted": 6,
+      "dangerousFalseAccepts": 7,
+      "autoAcceptRecall": 0.7272727272727273,
+      "dangerousFalseAcceptRate": 0.5
+    },
+    {
+      "matchedThreshold": 57,
+      "trueAccepts": 16,
+      "acceptNotAutoAccepted": 6,
+      "dangerousFalseAccepts": 6,
+      "autoAcceptRecall": 0.7272727272727273,
+      "dangerousFalseAcceptRate": 0.42857142857142855
+    },
+    {
+      "matchedThreshold": 58,
+      "trueAccepts": 15,
+      "acceptNotAutoAccepted": 7,
+      "dangerousFalseAccepts": 6,
+      "autoAcceptRecall": 0.6818181818181818,
+      "dangerousFalseAcceptRate": 0.42857142857142855
+    },
+    {
+      "matchedThreshold": 59,
+      "trueAccepts": 14,
+      "acceptNotAutoAccepted": 8,
+      "dangerousFalseAccepts": 6,
+      "autoAcceptRecall": 0.6363636363636364,
+      "dangerousFalseAcceptRate": 0.42857142857142855
+    },
+    {
+      "matchedThreshold": 60,
+      "trueAccepts": 13,
+      "acceptNotAutoAccepted": 9,
+      "dangerousFalseAccepts": 5,
+      "autoAcceptRecall": 0.5909090909090909,
+      "dangerousFalseAcceptRate": 0.35714285714285715
+    },
+    {
+      "matchedThreshold": 61,
+      "trueAccepts": 13,
+      "acceptNotAutoAccepted": 9,
+      "dangerousFalseAccepts": 5,
+      "autoAcceptRecall": 0.5909090909090909,
+      "dangerousFalseAcceptRate": 0.35714285714285715
+    },
+    {
+      "matchedThreshold": 62,
+      "trueAccepts": 11,
+      "acceptNotAutoAccepted": 11,
+      "dangerousFalseAccepts": 5,
+      "autoAcceptRecall": 0.5,
+      "dangerousFalseAcceptRate": 0.35714285714285715
+    },
+    {
+      "matchedThreshold": 63,
+      "trueAccepts": 11,
+      "acceptNotAutoAccepted": 11,
+      "dangerousFalseAccepts": 3,
+      "autoAcceptRecall": 0.5,
+      "dangerousFalseAcceptRate": 0.21428571428571427
+    },
+    {
+      "matchedThreshold": 64,
+      "trueAccepts": 9,
+      "acceptNotAutoAccepted": 13,
+      "dangerousFalseAccepts": 2,
+      "autoAcceptRecall": 0.4090909090909091,
+      "dangerousFalseAcceptRate": 0.14285714285714285
+    },
+    {
+      "matchedThreshold": 65,
+      "trueAccepts": 9,
+      "acceptNotAutoAccepted": 13,
+      "dangerousFalseAccepts": 2,
+      "autoAcceptRecall": 0.4090909090909091,
+      "dangerousFalseAcceptRate": 0.14285714285714285
+    },
+    {
+      "matchedThreshold": 68,
+      "trueAccepts": 9,
+      "acceptNotAutoAccepted": 13,
+      "dangerousFalseAccepts": 1,
+      "autoAcceptRecall": 0.4090909090909091,
+      "dangerousFalseAcceptRate": 0.07142857142857142
+    },
+    {
+      "matchedThreshold": 69,
+      "trueAccepts": 8,
+      "acceptNotAutoAccepted": 14,
+      "dangerousFalseAccepts": 1,
+      "autoAcceptRecall": 0.36363636363636365,
+      "dangerousFalseAcceptRate": 0.07142857142857142
+    },
+    {
+      "matchedThreshold": 70,
+      "trueAccepts": 6,
+      "acceptNotAutoAccepted": 16,
+      "dangerousFalseAccepts": 1,
+      "autoAcceptRecall": 0.2727272727272727,
+      "dangerousFalseAcceptRate": 0.07142857142857142
+    },
+    {
+      "matchedThreshold": 71,
+      "trueAccepts": 6,
+      "acceptNotAutoAccepted": 16,
+      "dangerousFalseAccepts": 1,
+      "autoAcceptRecall": 0.2727272727272727,
+      "dangerousFalseAcceptRate": 0.07142857142857142
+    },
+    {
+      "matchedThreshold": 72,
+      "trueAccepts": 5,
+      "acceptNotAutoAccepted": 17,
+      "dangerousFalseAccepts": 0,
+      "autoAcceptRecall": 0.22727272727272727,
+      "dangerousFalseAcceptRate": 0
+    },
+    {
+      "matchedThreshold": 73,
+      "trueAccepts": 3,
+      "acceptNotAutoAccepted": 19,
+      "dangerousFalseAccepts": 0,
+      "autoAcceptRecall": 0.13636363636363635,
+      "dangerousFalseAcceptRate": 0
+    },
+    {
+      "matchedThreshold": 75,
+      "trueAccepts": 0,
+      "acceptNotAutoAccepted": 22,
+      "dangerousFalseAccepts": 0,
+      "autoAcceptRecall": 0,
+      "dangerousFalseAcceptRate": 0
+    },
+    {
+      "matchedThreshold": 80,
+      "trueAccepts": 0,
+      "acceptNotAutoAccepted": 22,
+      "dangerousFalseAccepts": 0,
+      "autoAcceptRecall": 0,
+      "dangerousFalseAcceptRate": 0
+    },
+    {
+      "matchedThreshold": 85,
+      "trueAccepts": 0,
+      "acceptNotAutoAccepted": 22,
+      "dangerousFalseAccepts": 0,
+      "autoAcceptRecall": 0,
+      "dangerousFalseAcceptRate": 0
+    }
+  ],
+  "reviewThresholdSweep": [
+    {
+      "reviewThreshold": 27,
+      "hardFalseRejects": 0,
+      "hardFalseRejectRate": 0,
+      "acceptNeedsReview": 22,
+      "negativeNeedsReview": 11,
+      "negativeNeedsReviewRate": 0.7857142857142857
+    },
+    {
+      "reviewThreshold": 35,
+      "hardFalseRejects": 0,
+      "hardFalseRejectRate": 0,
+      "acceptNeedsReview": 22,
+      "negativeNeedsReview": 10,
+      "negativeNeedsReviewRate": 0.7142857142857143
+    },
+    {
+      "reviewThreshold": 38,
+      "hardFalseRejects": 0,
+      "hardFalseRejectRate": 0,
+      "acceptNeedsReview": 22,
+      "negativeNeedsReview": 10,
+      "negativeNeedsReviewRate": 0.7142857142857143
+    },
+    {
+      "reviewThreshold": 40,
+      "hardFalseRejects": 0,
+      "hardFalseRejectRate": 0,
+      "acceptNeedsReview": 22,
+      "negativeNeedsReview": 9,
+      "negativeNeedsReviewRate": 0.6428571428571429
+    },
+    {
+      "reviewThreshold": 42,
+      "hardFalseRejects": 0,
+      "hardFalseRejectRate": 0,
+      "acceptNeedsReview": 22,
+      "negativeNeedsReview": 9,
+      "negativeNeedsReviewRate": 0.6428571428571429
+    },
+    {
+      "reviewThreshold": 44,
+      "hardFalseRejects": 0,
+      "hardFalseRejectRate": 0,
+      "acceptNeedsReview": 22,
+      "negativeNeedsReview": 8,
+      "negativeNeedsReviewRate": 0.5714285714285714
+    },
+    {
+      "reviewThreshold": 45,
+      "hardFalseRejects": 2,
+      "hardFalseRejectRate": 0.09090909090909091,
+      "acceptNeedsReview": 20,
+      "negativeNeedsReview": 8,
+      "negativeNeedsReviewRate": 0.5714285714285714
+    },
+    {
+      "reviewThreshold": 47,
+      "hardFalseRejects": 2,
+      "hardFalseRejectRate": 0.09090909090909091,
+      "acceptNeedsReview": 20,
+      "negativeNeedsReview": 8,
+      "negativeNeedsReviewRate": 0.5714285714285714
+    },
+    {
+      "reviewThreshold": 49,
+      "hardFalseRejects": 2,
+      "hardFalseRejectRate": 0.09090909090909091,
+      "acceptNeedsReview": 20,
+      "negativeNeedsReview": 7,
+      "negativeNeedsReviewRate": 0.5
+    },
+    {
+      "reviewThreshold": 50,
+      "hardFalseRejects": 3,
+      "hardFalseRejectRate": 0.13636363636363635,
+      "acceptNeedsReview": 19,
+      "negativeNeedsReview": 7,
+      "negativeNeedsReviewRate": 0.5
+    },
+    {
+      "reviewThreshold": 53,
+      "hardFalseRejects": 4,
+      "hardFalseRejectRate": 0.18181818181818182,
+      "acceptNeedsReview": 18,
+      "negativeNeedsReview": 7,
+      "negativeNeedsReviewRate": 0.5
+    },
+    {
+      "reviewThreshold": 54,
+      "hardFalseRejects": 5,
+      "hardFalseRejectRate": 0.22727272727272727,
+      "acceptNeedsReview": 17,
+      "negativeNeedsReview": 7,
+      "negativeNeedsReviewRate": 0.5
+    },
+    {
+      "reviewThreshold": 55,
+      "hardFalseRejects": 6,
+      "hardFalseRejectRate": 0.2727272727272727,
+      "acceptNeedsReview": 16,
+      "negativeNeedsReview": 7,
+      "negativeNeedsReviewRate": 0.5
+    },
+    {
+      "reviewThreshold": 57,
+      "hardFalseRejects": 6,
+      "hardFalseRejectRate": 0.2727272727272727,
+      "acceptNeedsReview": 16,
+      "negativeNeedsReview": 6,
+      "negativeNeedsReviewRate": 0.42857142857142855
+    },
+    {
+      "reviewThreshold": 58,
+      "hardFalseRejects": 7,
+      "hardFalseRejectRate": 0.3181818181818182,
+      "acceptNeedsReview": 15,
+      "negativeNeedsReview": 6,
+      "negativeNeedsReviewRate": 0.42857142857142855
+    },
+    {
+      "reviewThreshold": 59,
+      "hardFalseRejects": 8,
+      "hardFalseRejectRate": 0.36363636363636365,
+      "acceptNeedsReview": 14,
+      "negativeNeedsReview": 6,
+      "negativeNeedsReviewRate": 0.42857142857142855
+    },
+    {
+      "reviewThreshold": 60,
+      "hardFalseRejects": 9,
+      "hardFalseRejectRate": 0.4090909090909091,
+      "acceptNeedsReview": 13,
+      "negativeNeedsReview": 5,
+      "negativeNeedsReviewRate": 0.35714285714285715
+    },
+    {
+      "reviewThreshold": 61,
+      "hardFalseRejects": 9,
+      "hardFalseRejectRate": 0.4090909090909091,
+      "acceptNeedsReview": 13,
+      "negativeNeedsReview": 5,
+      "negativeNeedsReviewRate": 0.35714285714285715
+    },
+    {
+      "reviewThreshold": 62,
+      "hardFalseRejects": 11,
+      "hardFalseRejectRate": 0.5,
+      "acceptNeedsReview": 11,
+      "negativeNeedsReview": 5,
+      "negativeNeedsReviewRate": 0.35714285714285715
+    },
+    {
+      "reviewThreshold": 63,
+      "hardFalseRejects": 11,
+      "hardFalseRejectRate": 0.5,
+      "acceptNeedsReview": 11,
+      "negativeNeedsReview": 3,
+      "negativeNeedsReviewRate": 0.21428571428571427
+    },
+    {
+      "reviewThreshold": 64,
+      "hardFalseRejects": 13,
+      "hardFalseRejectRate": 0.5909090909090909,
+      "acceptNeedsReview": 9,
+      "negativeNeedsReview": 2,
+      "negativeNeedsReviewRate": 0.14285714285714285
+    },
+    {
+      "reviewThreshold": 65,
+      "hardFalseRejects": 13,
+      "hardFalseRejectRate": 0.5909090909090909,
+      "acceptNeedsReview": 9,
+      "negativeNeedsReview": 2,
+      "negativeNeedsReviewRate": 0.14285714285714285
+    },
+    {
+      "reviewThreshold": 68,
+      "hardFalseRejects": 13,
+      "hardFalseRejectRate": 0.5909090909090909,
+      "acceptNeedsReview": 9,
+      "negativeNeedsReview": 1,
+      "negativeNeedsReviewRate": 0.07142857142857142
+    },
+    {
+      "reviewThreshold": 69,
+      "hardFalseRejects": 14,
+      "hardFalseRejectRate": 0.6363636363636364,
+      "acceptNeedsReview": 8,
+      "negativeNeedsReview": 1,
+      "negativeNeedsReviewRate": 0.07142857142857142
+    },
+    {
+      "reviewThreshold": 70,
+      "hardFalseRejects": 16,
+      "hardFalseRejectRate": 0.7272727272727273,
+      "acceptNeedsReview": 6,
+      "negativeNeedsReview": 1,
+      "negativeNeedsReviewRate": 0.07142857142857142
+    },
+    {
+      "reviewThreshold": 71,
+      "hardFalseRejects": 16,
+      "hardFalseRejectRate": 0.7272727272727273,
+      "acceptNeedsReview": 6,
+      "negativeNeedsReview": 1,
+      "negativeNeedsReviewRate": 0.07142857142857142
+    },
+    {
+      "reviewThreshold": 72,
+      "hardFalseRejects": 17,
+      "hardFalseRejectRate": 0.7727272727272727,
+      "acceptNeedsReview": 5,
+      "negativeNeedsReview": 0,
+      "negativeNeedsReviewRate": 0
+    },
+    {
+      "reviewThreshold": 73,
+      "hardFalseRejects": 19,
+      "hardFalseRejectRate": 0.8636363636363636,
+      "acceptNeedsReview": 3,
+      "negativeNeedsReview": 0,
+      "negativeNeedsReviewRate": 0
+    },
+    {
+      "reviewThreshold": 75,
+      "hardFalseRejects": 22,
+      "hardFalseRejectRate": 1,
+      "acceptNeedsReview": 0,
+      "negativeNeedsReview": 0,
+      "negativeNeedsReviewRate": 0
+    }
+  ],
+  "scenarioSummaries": [
+    {
+      "name": "CleanMatch",
+      "total": 10,
+      "detected": 10,
+      "trueAccepts": 3,
+      "needsReview": 2,
+      "dangerousFalseAccepts": 0,
+      "hardFalseRejects": 5,
+      "averageConfidence": 61.38
+    },
+    {
+      "name": "DuplicateRole",
+      "total": 6,
+      "detected": 6,
+      "trueAccepts": 0,
+      "needsReview": 2,
+      "dangerousFalseAccepts": 1,
+      "hardFalseRejects": 1,
+      "averageConfidence": 59.99
+    },
+    {
+      "name": "MissingSignature",
+      "total": 4,
+      "detected": 3,
+      "trueAccepts": 0,
+      "needsReview": 2,
+      "dangerousFalseAccepts": 0,
+      "hardFalseRejects": 1,
+      "averageConfidence": 43.98
+    },
+    {
+      "name": "NegativeMismatch",
+      "total": 6,
+      "detected": 6,
+      "trueAccepts": 1,
+      "needsReview": 1,
+      "dangerousFalseAccepts": 0,
+      "hardFalseRejects": 1,
+      "averageConfidence": 52.69
+    },
+    {
+      "name": "PoorQuality",
+      "total": 10,
+      "detected": 10,
+      "trueAccepts": 2,
+      "needsReview": 4,
+      "dangerousFalseAccepts": 0,
+      "hardFalseRejects": 1,
+      "averageConfidence": 62.4
+    },
+    {
+      "name": "WrongField",
+      "total": 4,
+      "detected": 2,
+      "trueAccepts": 0,
+      "needsReview": 1,
+      "dangerousFalseAccepts": 0,
+      "hardFalseRejects": 0,
+      "averageConfidence": 25.28
+    }
+  ],
+  "roleSummaries": [
+    {
+      "name": "applicant_signature",
+      "total": 20,
+      "detected": 17,
+      "trueAccepts": 2,
+      "needsReview": 5,
+      "dangerousFalseAccepts": 0,
+      "hardFalseRejects": 4,
+      "averageConfidence": 49.41
+    },
+    {
+      "name": "authorised_signature",
+      "total": 4,
+      "detected": 4,
+      "trueAccepts": 0,
+      "needsReview": 2,
+      "dangerousFalseAccepts": 0,
+      "hardFalseRejects": 1,
+      "averageConfidence": 56.6
+    },
+    {
+      "name": "witness_signature",
+      "total": 16,
+      "detected": 16,
+      "trueAccepts": 4,
+      "needsReview": 5,
+      "dangerousFalseAccepts": 1,
+      "hardFalseRejects": 4,
+      "averageConfidence": 61.02
+    }
+  ],
+  "scriptSummaries": [
+    {
+      "name": "Chinese",
+      "total": 12,
+      "detected": 11,
+      "trueAccepts": 1,
+      "needsReview": 5,
+      "dangerousFalseAccepts": 0,
+      "hardFalseRejects": 0,
+      "averageConfidence": 53.88
+    },
+    {
+      "name": "English",
+      "total": 28,
+      "detected": 26,
+      "trueAccepts": 5,
+      "needsReview": 7,
+      "dangerousFalseAccepts": 1,
+      "hardFalseRejects": 9,
+      "averageConfidence": 55.15
+    }
+  ],
+  "csvReportPath": "C:\\Users\\Syed.Ahmed\\OneDrive - Tungsten Automation, Corp\\Documents\\NewSigOpenCVProd\\.verification\\synthetic-benchmark-calibrated\\Report\\benchmark-results.csv",
+  "jsonReportPath": "C:\\Users\\Syed.Ahmed\\OneDrive - Tungsten Automation, Corp\\Documents\\NewSigOpenCVProd\\.verification\\synthetic-benchmark-calibrated\\Report\\benchmark-summary.json",
+  "htmlReportPath": "C:\\Users\\Syed.Ahmed\\OneDrive - Tungsten Automation, Corp\\Documents\\NewSigOpenCVProd\\.verification\\synthetic-benchmark-calibrated\\Report\\benchmark-report.html"
+}

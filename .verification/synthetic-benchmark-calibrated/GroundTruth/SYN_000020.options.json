@@ -1,0 +1,23 @@
+{
+  "inputDocumentType": "Image",
+  "signatureRoles": {
+    "mode": "ApplicantWitnessAuthorised"
+  },
+  "thresholds": {
+    "matched": 85,
+    "probableMatch": 70,
+    "reviewRequired": 55
+  },
+  "detection": {
+    "useKnownZones": false,
+    "useOcrAnchors": true,
+    "useBoxDetection": true,
+    "useInkRegionDetection": true,
+    "maxCandidateRegionsPerSignature": 8,
+    "candidatePoolMultiplier": 8,
+    "minimumInkDensityPercent": 0.15,
+    "maximumInkDensityPercent": 60,
+    "preferLaterPages": false
+  },
+  "knownZones": []
+}

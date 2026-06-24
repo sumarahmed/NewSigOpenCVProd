@@ -1,0 +1,32 @@
+{
+  "documentId": "SYN_000016",
+  "scenario": "NegativeMismatch",
+  "formRoleMode": "ApplicantOnly",
+  "inputDocumentPath": "Input\\SYN_000016.png",
+  "ocrLayoutPath": "OcrLayout\\SYN_000016.layout.json",
+  "optionsPath": "GroundTruth\\SYN_000016.options.json",
+  "usesKnownZones": false,
+  "expectedSignatures": [
+    {
+      "signatureId": "applicant_signature",
+      "displayName": "Applicant Signature",
+      "expectedClass": "Reject",
+      "expectedSignerId": "SIGNER_0007_ENGLISH",
+      "actualSignerId": "SIGNER_0010_ENGLISH",
+      "script": "English",
+      "referenceImagePaths": [
+        "ReferenceSignatures\\SIGNER_0007_ENGLISH\\ref_01.png",
+        "ReferenceSignatures\\SIGNER_0007_ENGLISH\\ref_02.png",
+        "ReferenceSignatures\\SIGNER_0007_ENGLISH\\ref_03.png"
+      ],
+      "zone": {
+        "pageIndex": 0,
+        "x": 360,
+        "y": 1780,
+        "width": 980,
+        "height": 220,
+        "coordinateSystem": "pixels"
+      }
+    }
+  ]
+}

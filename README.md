@@ -10,7 +10,12 @@ It is not biometric identity verification. It does not use pressure, speed, stro
 - `StaticSignatureVerification.PdfRendering`: replaceable PDF rendering interfaces and `GhostscriptCommandLinePdfRenderer`.
 - `StaticSignatureVerification.TotalAgilityWrapper`: string-only wrapper for Tungsten/Kofax TotalAgility integration.
 - `StaticSignatureVerification.ConsoleTest`: CLI harness for PDFs/images/Base64 plus OCR, references, options, debug output, and JSON results.
+- `StaticSignatureVerification.Storage`: SQL Server storage contracts and repositories for results, review outcomes, reference lifecycle, cases, audit, retention, and export metadata.
+- `StaticSignatureVerification.Production`: production utilities for reference quality scoring, encrypted artifact storage, readiness checks, and export packaging.
+- `StaticSignatureVerification.Operations`: operations CLI for reference enrollment, approval, duplicate scans, case management, retention, purge, DR export, and setup checks.
+- `StaticSignatureVerification.Api`: authenticated REST API service for verification and production workflows.
 - `StaticSignatureVerification.Tests`: self-running unit test harness using synthetic images.
+- `StaticSignatureVerification.Regression`: self-running 20-case core regression pack covering match, mismatch, missing signatures, multi-signature mapping, rotated/skewed pages, false-positive controls, PDF/error handling, copied-signature risk, box-border handling, and TotalAgility JSON output.
 
 ## Dependencies And Licensing
 
@@ -32,6 +37,82 @@ dotnet build .\StaticSignatureVerification.sln -c Release
 dotnet run --project .\StaticSignatureVerification.Tests\StaticSignatureVerification.Tests.csproj -c Release
 ```
 
+Run the named core regression pack:
+
+```powershell
+dotnet run --project .\StaticSignatureVerification.Regression\StaticSignatureVerification.Regression.csproj -c Release -- --output=.verification\regression-pack
+```
+
+Expected output is `20 passed / 20 total`. The pack writes:
+
+- `.verification\regression-pack\regression-report.md`
+- `.verification\regression-pack\regression-results.csv`
+- `.verification\regression-pack\regression-results.json`
+- generated synthetic input/reference assets under `.verification\regression-pack\assets`
+
+## Production Operations
+
+One-click Windows install for a target server:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\Install-SignatureVerification.ps1 `
+  -StorageMode Database `
+  -CreateStartupTask
+```
+
+The installer publishes the API and operations tools, initializes or upgrades SQL, creates runtime folders, writes production API configuration, generates an API key when one is not supplied, and optionally registers a Windows startup task. It can detect Ghostscript and can install it only when explicitly requested with `-InstallGhostscript`.
+
+Run the prerequisite checker:
+
+```powershell
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- check-prereqs
+```
+
+Run the setup wizard:
+
+```powershell
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- setup-wizard
+```
+
+The setup wizard asks whether the install should run as `Hybrid` or `Database`.
+
+```powershell
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- setup-wizard --storageMode Hybrid
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- setup-wizard --storageMode Database
+```
+
+Use `Hybrid` when files remain on disk and SQL stores results/workflow records. Use `Database` when documents, reference images, debug artifacts, results, reviewer outcomes, cases, and audit records should be stored in SQL.
+
+Common production workflow commands:
+
+```powershell
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- enroll-reference --imageFile <path> --referenceSetId <id> --referenceId <id> --signatureId applicant_signature
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- approve-reference --referenceId <id> --actor <user>
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- scan-duplicates --threshold 92
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- create-case --caseNumber CASE-1001 --priority High
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- export-dr --outputFolder C:\Temp\SignatureVerification\Exports
+```
+
+Run the API service:
+
+```powershell
+$env:SIGNATURE_VERIFICATION_DB_CONNECTION = "Data Source=(localdb)\MSSQLLocalDB;Initial Catalog=SignatureVerification;Integrated Security=True;Encrypt=False;TrustServerCertificate=True;Application Name=SignatureVerification;"
+$env:SIGNATURE_API_KEYS = "<strong-random-key>:Administrator,ReferenceApprover,Reviewer,Auditor,Verifier"
+dotnet run --project .\StaticSignatureVerification.Api -c Release -- --urls http://127.0.0.1:5117
+```
+
+Secured API calls require `X-API-Key`. Bootstrap keys can be supplied with `SIGNATURE_API_KEYS` or `SignatureVerification:ApiKeys`; DB-managed keys can also be created through the Admin UI and are stored hashed in `ssv.ApiKeyRegistry`. Use `X-Request-ID` for caller traceability.
+
+Use `POST /api/v1/verify` for hybrid calls that include `referenceSignaturesJson`. Use `POST /api/v1/verify-db-native` for DB-native calls where approved reference images are loaded from SQL by role/party/reference-set mapping.
+
+Open the administrative UI after the API is running:
+
+```text
+http://127.0.0.1:5117/admin
+```
+
+The UI uses the configured `X-API-Key` and provides operational views for readiness, storage mode, purge settings, database counts, latest documents, references, case queue, retention policies and purge runs, API keys, users/roles, templates/zones, threshold profiles, backup/export package requests, service status, and audit events.
+
 ## Documentation
 
 Detailed documentation is split by audience:
@@ -40,8 +121,12 @@ Detailed documentation is split by audience:
 - [Business Documentation](docs/Business.md)
 - [Administration Guide](docs/Administration.md)
 - [Operations Runbook](docs/Operations.md)
+- [SQL Database Reference](docs/SQL-Database.md)
+- [Production Readiness Review](docs/Production-Readiness-Review.md)
 
 Keep these documents updated when API contracts, configuration, reporting, or operational behavior changes. See [docs/README.md](docs/README.md) for the maintenance checklist.
+
+Current local verification status is summarized in [Production Readiness Review](docs/Production-Readiness-Review.md). As of 2026-06-25, the solution build, existing test harness, and 20-case regression pack pass locally; production approval still requires customer holdout sampling and operational DR evidence.
 
 ## Console Usage
 
@@ -358,6 +443,8 @@ Default decisions:
 - `NoSignatureDetected` or `InsufficientQuality`: requires review
 
 Audit JSON includes ink density, geometry, density grids, contour metrics, skeleton metrics, connected components, quality flags, candidate regions, preprocessing details, and all reference comparisons.
+
+The scorer also uses normalized comparison metrics, structural reject gates for clear wrong-signer/wrong-reference cases, and rotation/skew tolerant scoring for otherwise strong matches. If the same detected signature pattern appears across different expected roles/signers, the result includes `REUSED_COPIED_SIGNATURE_HIGH_RISK` and requires human review.
 
 ## Synthetic Benchmark Dataset
 

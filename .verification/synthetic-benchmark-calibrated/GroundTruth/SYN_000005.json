@@ -1,0 +1,74 @@
+{
+  "documentId": "SYN_000005",
+  "scenario": "PoorQuality",
+  "formRoleMode": "ApplicantWitnessAuthorised",
+  "inputDocumentPath": "Input\\SYN_000005.png",
+  "ocrLayoutPath": "OcrLayout\\SYN_000005.layout.json",
+  "optionsPath": "GroundTruth\\SYN_000005.options.json",
+  "usesKnownZones": true,
+  "expectedSignatures": [
+    {
+      "signatureId": "applicant_signature",
+      "displayName": "Applicant Signature",
+      "expectedClass": "Review",
+      "expectedSignerId": "SIGNER_0010_ENGLISH",
+      "actualSignerId": "SIGNER_0010_ENGLISH",
+      "script": "English",
+      "referenceImagePaths": [
+        "ReferenceSignatures\\SIGNER_0010_ENGLISH\\ref_01.png",
+        "ReferenceSignatures\\SIGNER_0010_ENGLISH\\ref_02.png",
+        "ReferenceSignatures\\SIGNER_0010_ENGLISH\\ref_03.png"
+      ],
+      "zone": {
+        "pageIndex": 0,
+        "x": 120,
+        "y": 1720,
+        "width": 460,
+        "height": 190,
+        "coordinateSystem": "pixels"
+      }
+    },
+    {
+      "signatureId": "witness_signature",
+      "displayName": "Witness Signature",
+      "expectedClass": "Accept",
+      "expectedSignerId": "SIGNER_0005_ENGLISH",
+      "actualSignerId": "SIGNER_0005_ENGLISH",
+      "script": "English",
+      "referenceImagePaths": [
+        "ReferenceSignatures\\SIGNER_0005_ENGLISH\\ref_01.png",
+        "ReferenceSignatures\\SIGNER_0005_ENGLISH\\ref_02.png",
+        "ReferenceSignatures\\SIGNER_0005_ENGLISH\\ref_03.png"
+      ],
+      "zone": {
+        "pageIndex": 0,
+        "x": 620,
+        "y": 1720,
+        "width": 460,
+        "height": 190,
+        "coordinateSystem": "pixels"
+      }
+    },
+    {
+      "signatureId": "authorised_signature",
+      "displayName": "Authorised Signature",
+      "expectedClass": "Accept",
+      "expectedSignerId": "SIGNER_0009_CHINESE",
+      "actualSignerId": "SIGNER_0009_CHINESE",
+      "script": "Chinese",
+      "referenceImagePaths": [
+        "ReferenceSignatures\\SIGNER_0009_CHINESE\\ref_01.png",
+        "ReferenceSignatures\\SIGNER_0009_CHINESE\\ref_02.png",
+        "ReferenceSignatures\\SIGNER_0009_CHINESE\\ref_03.png"
+      ],
+      "zone": {
+        "pageIndex": 0,
+        "x": 1120,
+        "y": 1720,
+        "width": 460,
+        "height": 190,
+        "coordinateSystem": "pixels"
+      }
+    }
+  ]
+}

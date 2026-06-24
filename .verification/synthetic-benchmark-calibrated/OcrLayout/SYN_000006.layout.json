@@ -1,0 +1,27 @@
+{
+  "analyzeResult": {
+    "pages": [
+      {
+        "pageNumber": 1,
+        "width": 1700,
+        "height": 2200,
+        "unit": "pixel",
+        "lines": [
+          {
+            "content": "Applicant Signature",
+            "polygon": [
+              360,
+              1732,
+              720,
+              1732,
+              720,
+              1765,
+              360,
+              1765
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
