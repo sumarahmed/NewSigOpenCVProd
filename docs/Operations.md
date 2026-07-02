@@ -367,9 +367,12 @@ Retention, purge, and disaster recovery export:
 
 ```powershell
 dotnet run --project .\StaticSignatureVerification.Operations -c Release -- set-retention --policyName DebugArtifacts90Days --targetObjectType DebugArtifact --retentionDays 90
+dotnet run --project .\StaticSignatureVerification.Operations -c Release -- purge --dryRun true
 dotnet run --project .\StaticSignatureVerification.Operations -c Release -- purge --deleteFiles false
 dotnet run --project .\StaticSignatureVerification.Operations -c Release -- export-dr --outputFolder C:\Temp\SignatureVerification\Exports
 ```
+
+`--dryRun true` performs no filesystem or database mutation at all and only reports what would be purged — run this before the first real purge in a new environment. `--deleteFiles false` (the default) still purges eligible database rows and blobs for real; it only skips deleting the corresponding on-disk file.
 
 Readiness and setup:
 
@@ -478,7 +481,8 @@ Admin retention notes:
 - Retention policy names come from `ssv.RetentionPolicy`.
 - The Admin UI uses a dropdown for policy names and read-only target object type to avoid typo-created policies.
 - File purge and DB-native blob purge are controlled separately in Admin Settings.
-- `/api/v1/admin/retention/purge` follows those settings; `/api/v1/retention/purge` follows the request body.
+- `/api/v1/admin/retention/purge` follows those settings and takes `dryRun` as a query string parameter (`?dryRun=true`); `/api/v1/retention/purge` follows the request body (`{"deleteFiles": false, "dryRun": true}`).
+- `dryRun: true` on either endpoint performs no filesystem or database mutation — use it to preview a purge before running it for real. The Admin UI Retention tab exposes this as a mode selector next to its "Run purge now" button.
 
 ## Operational Monitoring
 

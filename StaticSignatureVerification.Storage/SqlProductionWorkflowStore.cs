@@ -370,7 +370,7 @@ SELECT RetentionPolicyId FROM ssv.RetentionPolicy WHERE PolicyName = @PolicyName
         }, cancellationToken).ConfigureAwait(false));
     }
 
-    public async Task<PurgeRunResultRecord> RunRetentionPurgeAsync(DateTimeOffset nowUtc, string actor, bool deleteFiles, CancellationToken cancellationToken = default)
+    public async Task<PurgeRunResultRecord> RunRetentionPurgeAsync(DateTimeOffset nowUtc, string actor, bool deleteFiles, bool dryRun = false, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         var purgeRunId = Convert.ToInt64(await ScalarAsync(connection, null, """
@@ -381,6 +381,7 @@ SELECT CONVERT(bigint, SCOPE_IDENTITY());
         var policies = await LoadRetentionPoliciesAsync(connection, cancellationToken).ConfigureAwait(false);
         var candidates = new List<PurgeCandidate>();
         await AddStorageObjectCandidatesAsync(connection, candidates, nowUtc, policies, cancellationToken).ConfigureAwait(false);
+        await AddVerificationDocumentCandidatesAsync(connection, candidates, nowUtc, policies, cancellationToken).ConfigureAwait(false);
         if (await GetSystemSettingAsync(connection, "DatabaseBlobPurgeEnabled", cancellationToken).ConfigureAwait(false) != "false")
         {
             await AddDbBlobCandidatesAsync(connection, candidates, "DocumentBlob", "ssv.DocumentBlob", "DocumentBlobId", "DocumentResultId", nowUtc, policies, cancellationToken).ConfigureAwait(false);
@@ -392,18 +393,52 @@ SELECT CONVERT(bigint, SCOPE_IDENTITY());
         string? error = null;
         foreach (var candidate in candidates)
         {
-            var status = "Purged";
-            var message = candidate.IsFilesystem ? "Metadata purged." : "Database blob purged.";
+            string status;
+            string message;
             try
             {
-                if (candidate.IsFilesystem && deleteFiles && !string.IsNullOrWhiteSpace(candidate.Uri) && File.Exists(candidate.Uri))
+                if (dryRun)
                 {
-                    File.Delete(candidate.Uri);
-                    message = "File and metadata purged.";
+                    // Dry run must not mutate anything - neither the filesystem nor the database -
+                    // so operators can safely preview a purge before committing to it.
+                    status = "WouldPurge";
+                    message = candidate.Source switch
+                    {
+                        "VerificationDocument" => "Dry run: document and cascaded case/audit metadata would be purged.",
+                        _ when candidate.IsFilesystem => deleteFiles
+                            ? "Dry run: file and metadata would be purged."
+                            : "Dry run: metadata would be purged (file deletion disabled).",
+                        _ => "Dry run: database blob would be purged."
+                    };
                 }
+                else
+                {
+                    status = "Purged";
+                    message = candidate.Source switch
+                    {
+                        "VerificationDocument" => "Document and cascaded case/audit metadata purged.",
+                        _ when candidate.IsFilesystem => "Metadata purged.",
+                        _ => "Database blob purged."
+                    };
+                    if (candidate.IsFilesystem && deleteFiles && !string.IsNullOrWhiteSpace(candidate.Uri) && File.Exists(candidate.Uri))
+                    {
+                        File.Delete(candidate.Uri);
+                        message = "File and metadata purged.";
+                    }
 
-                await NonQueryAsync(connection, null, candidate.DeleteSql, command => AddLong(command, "@Id", candidate.Id), cancellationToken).ConfigureAwait(false);
-                purged++;
+                    await NonQueryAsync(connection, null, candidate.DeleteSql, command =>
+                    {
+                        if (candidate.StringKey is not null)
+                        {
+                            AddString(command, "@Id", candidate.StringKey);
+                        }
+                        else
+                        {
+                            AddLong(command, "@Id", candidate.Id);
+                        }
+                    }, cancellationToken).ConfigureAwait(false);
+                    purged++;
+                }
             }
             catch (Exception ex)
             {
@@ -418,7 +453,7 @@ VALUES(@PurgeRunId, @StorageObjectId, @EntityType, @EntityId, N'Purge', @Status,
 """, command =>
             {
                 AddLong(command, "@PurgeRunId", purgeRunId);
-                AddLong(command, "@StorageObjectId", null);
+                AddLong(command, "@StorageObjectId", candidate.Source == "StorageObject" ? candidate.Id : null);
                 AddString(command, "@EntityType", candidate.EntityType);
                 AddString(command, "@EntityId", candidate.EntityId);
                 AddString(command, "@Status", status);
@@ -426,7 +461,9 @@ VALUES(@PurgeRunId, @StorageObjectId, @EntityType, @EntityId, N'Purge', @Status,
             }, cancellationToken).ConfigureAwait(false);
         }
 
-        var runStatus = error is null ? "Completed" : "CompletedWithErrors";
+        var runStatus = dryRun
+            ? (error is null ? "CompletedDryRun" : "CompletedDryRunWithErrors")
+            : (error is null ? "Completed" : "CompletedWithErrors");
         await NonQueryAsync(connection, null, "UPDATE ssv.PurgeRun SET FinishedUtc = sysutcdatetime(), Status = @Status, CandidateCount = @CandidateCount, PurgedCount = @PurgedCount, ErrorMessage = @ErrorMessage WHERE PurgeRunId = @PurgeRunId;", command =>
         {
             AddString(command, "@Status", runStatus);
@@ -437,6 +474,25 @@ VALUES(@PurgeRunId, @StorageObjectId, @EntityType, @EntityId, N'Purge', @Status,
         }, cancellationToken).ConfigureAwait(false);
 
         return new PurgeRunResultRecord(purgeRunId, candidates.Count, purged, runStatus, error);
+    }
+
+    public async Task<long> RegisterStorageObjectAsync(string objectType, string? entityType, string? entityId, string storageUri, DateTimeOffset createdUtc, DateTimeOffset? retainUntilUtc, long? sizeBytes = null, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        return Convert.ToInt64(await ScalarAsync(connection, null, """
+INSERT INTO ssv.StorageObject(ObjectType, EntityType, EntityId, StorageUri, SizeBytes, CreatedUtc, RetainUntilUtc)
+VALUES(@ObjectType, @EntityType, @EntityId, @StorageUri, @SizeBytes, @CreatedUtc, @RetainUntilUtc);
+SELECT CONVERT(bigint, SCOPE_IDENTITY());
+""", command =>
+        {
+            AddString(command, "@ObjectType", objectType);
+            AddString(command, "@EntityType", entityType);
+            AddString(command, "@EntityId", entityId);
+            AddString(command, "@StorageUri", storageUri);
+            AddLong(command, "@SizeBytes", sizeBytes);
+            AddDate(command, "@CreatedUtc", createdUtc);
+            AddDate(command, "@RetainUntilUtc", retainUntilUtc);
+        }, cancellationToken).ConfigureAwait(false));
     }
 
     private static async Task<Dictionary<string, int>> LoadRetentionPoliciesAsync(SqlConnection connection, CancellationToken cancellationToken)
@@ -493,6 +549,40 @@ WHERE (RetainUntilUtc IS NOT NULL AND RetainUntilUtc <= @NowUtc)
                 NullableString(reader, 3),
                 true,
                 "DELETE FROM ssv.StorageObject WHERE StorageObjectId = @Id;"));
+        }
+    }
+
+    private static async Task AddVerificationDocumentCandidatesAsync(SqlConnection connection, List<PurgeCandidate> candidates, DateTimeOffset nowUtc, IReadOnlyDictionary<string, int> policies, CancellationToken cancellationToken)
+    {
+        // Case/document metadata (VerificationDocument, and everything that cascades from it:
+        // SignatureCase, ReferenceComparison, DebugArtifact, ReviewerOutcome, ReviewCase,
+        // ResultGovernanceSnapshot) is only purged when an administrator has explicitly activated
+        // a "VerificationDocument" retention policy. There is no implicit fallback retention window
+        // for this data, because it is the primary audit record and may be subject to compliance
+        // retention obligations that differ per deployment.
+        if (!policies.TryGetValue("VerificationDocument", out var retentionDays) || retentionDays <= 0)
+        {
+            return;
+        }
+
+        var cutoffUtc = nowUtc.AddDays(-retentionDays);
+        await using var command = connection.CreateCommand();
+        command.CommandTimeout = 120;
+        command.CommandText = "SELECT DocumentResultId FROM ssv.VerificationDocument WHERE CreatedUtc <= @CutoffUtc;";
+        AddDate(command, "@CutoffUtc", cutoffUtc);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var documentResultId = reader.GetString(0);
+            candidates.Add(new PurgeCandidate(
+                "VerificationDocument",
+                0,
+                null,
+                "VerificationDocument",
+                documentResultId,
+                false,
+                "DELETE FROM ssv.VerificationDocument WHERE DocumentResultId = @Id;",
+                StringKey: documentResultId));
         }
     }
 
@@ -717,7 +807,8 @@ SELECT CONVERT(bigint, SCOPE_IDENTITY());
         string? EntityType,
         string? EntityId,
         bool IsFilesystem,
-        string DeleteSql);
+        string DeleteSql,
+        string? StringKey = null);
 
     private static string? NullableString(SqlDataReader reader, int ordinal) =>
         reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);

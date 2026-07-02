@@ -9,7 +9,8 @@ public interface IProductionWorkflowStore
     Task UpdateReviewCaseAsync(ReviewCaseUpdateRecord update, CancellationToken cancellationToken = default);
     Task LogAuditEventAsync(AuditEventRecord auditEvent, CancellationToken cancellationToken = default);
     Task<long> UpsertRetentionPolicyAsync(RetentionPolicyRecord policy, CancellationToken cancellationToken = default);
-    Task<PurgeRunResultRecord> RunRetentionPurgeAsync(DateTimeOffset nowUtc, string actor, bool deleteFiles, CancellationToken cancellationToken = default);
+    Task<PurgeRunResultRecord> RunRetentionPurgeAsync(DateTimeOffset nowUtc, string actor, bool deleteFiles, bool dryRun = false, CancellationToken cancellationToken = default);
+    Task<long> RegisterStorageObjectAsync(string objectType, string? entityType, string? entityId, string storageUri, DateTimeOffset createdUtc, DateTimeOffset? retainUntilUtc, long? sizeBytes = null, CancellationToken cancellationToken = default);
     Task<long> CreateExportPackageAsync(ExportPackageRecord exportPackage, CancellationToken cancellationToken = default);
 }
 

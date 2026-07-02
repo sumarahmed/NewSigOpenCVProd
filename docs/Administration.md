@@ -46,7 +46,7 @@ Use this section as the quick map for common administration changes.
 | Reference images | `C:\Temp\SignatureVerification\ReferenceSignatures`, or `ReferenceSignatures\reference-signatures.json` | `referenceSignaturesJson.referenceSets[].referenceImages[]` | `ReferenceSignatureInput` in `StaticSignatureVerification.Core\SignatureVerificationCore.cs` |
 | Party/reference mapping | `ReferenceSignatures\reference-signatures.json` on `referenceSets[]` | `signatureMappings`, `signatureMappingsJson`, or `referenceSignaturesJson.referenceSets[]` | `SignatureMapping` in `StaticSignatureVerification.Core\SignatureVerificationCore.cs` |
 | OCR/MSDI layout | `Input` file matching `*ocr*.json`, `*msdi*.json`, or `*layout*.json` | `ocrLayoutJson` | `OcrLayoutParser` in `StaticSignatureVerification.Core\SignatureVerificationCore.cs` |
-| Debug image output | local runner creates per-document `Output\<document>\debug`; can also set `saveDebugImages` and `debugOutputFolder` in `options.json` | `optionsJson.saveDebugImages` and `optionsJson.debugOutputFolder` | `DebugImageWriter` in `StaticSignatureVerification.Core\SignatureVerificationCore.cs` |
+| Debug image output | local runner creates per-document `Output\<document>\debug`; can also set `saveDebugImages` and `debugOutputFolder` in `options.json` | `optionsJson.saveDebugImages` and `optionsJson.debugOutputFolder` | `DebugImageWriter` in `StaticSignatureVerification.Core\SignatureVerificationCore.cs`. Files are always written under a per-request subfolder named for the verification's `documentResultId`, so concurrent requests reusing the same `debugOutputFolder` (a common caller pattern) never overwrite each other's images. |
 | Business report source/output | Reporting command `--input` and `--output` | Not used by wrapper; reports consume result JSON files | `StaticSignatureVerification.Reporting\Program.cs` |
 | Feedback tuning | Reporting command `--feedback-tune`, `--reviewer-outcomes`, `--current-options` | Exported reviewer CSV from review UI | `FeedbackTuningReport` in `StaticSignatureVerification.Reporting\Program.cs` |
 | Synthetic benchmark size | Benchmark command `--documents`, `--signers`, `--references`, `--seed` | Not applicable | `StaticSignatureVerification.Benchmark\Program.cs` |
@@ -551,19 +551,24 @@ Case management:
 Retention and export:
 
 - `set-retention`
-- `purge`
+- `purge` (add `--dryRun true` to preview a purge with zero mutation before running it for real)
 - `export-dr`
 
-Default production retention policies installed by migration `005_admin_retention_security`:
+The Admin UI Retention tab has a matching "Run purge now" control with a dry-run/real mode selector, backed by `POST /api/v1/admin/retention/purge?dryRun=true|false`.
 
-| Policy | Target object type | Days |
-| --- | --- | --- |
-| `DefaultStorageObjectRetention` | `StorageObject` | 2555 |
-| `DefaultDocumentBlobRetention` | `DocumentBlob` | 2555 |
-| `DefaultDebugArtifactBlobRetention` | `DebugArtifactBlob` | 90 |
-| `DefaultReportBlobRetention` | `ReportBlob` | 2555 |
+Default production retention policies installed by migrations `005_admin_retention_security` and `007_document_metadata_retention`:
+
+| Policy | Target object type | Days | Active by default? |
+| --- | --- | --- | --- |
+| `DefaultStorageObjectRetention` | `StorageObject` | 2555 | Yes |
+| `DefaultDocumentBlobRetention` | `DocumentBlob` | 2555 | Yes |
+| `DefaultDebugArtifactBlobRetention` | `DebugArtifactBlob` | 90 | Yes |
+| `DefaultReportBlobRetention` | `ReportBlob` | 2555 | Yes |
+| `DefaultVerificationDocumentRetention` | `VerificationDocument` | 2555 | **No** — review with Legal/Compliance and activate explicitly before this deletes case/document audit history |
 
 The legacy/local `DebugArtifacts90Days` policy may also exist when created through the operations CLI.
+
+`ssv.StorageObject` is populated automatically for debug images written by `POST /api/v1/verify` and for Hybrid-mode reference image enrollment; it is not retroactively populated for files created by earlier versions of the application.
 
 Security:
 

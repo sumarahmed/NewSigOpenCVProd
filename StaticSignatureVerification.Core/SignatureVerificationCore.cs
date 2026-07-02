@@ -146,7 +146,7 @@ public sealed class StaticSignatureVerificationEngine
             var ocr = _ocrParser.Parse(ocrLayoutJson, pages, result.Warnings);
             referenceFeatures = PreprocessReferences(references, options, result.Warnings);
 
-            foreach (var signatureResult in VerifyExpectedSignaturesGlobal(references.ReferenceSets, referenceFeatures, pages, ocr, options))
+            foreach (var signatureResult in VerifyExpectedSignaturesGlobal(references.ReferenceSets, referenceFeatures, pages, ocr, options, result.DocumentResultId))
             {
                 result.SignatureResults.Add(signatureResult);
             }
@@ -348,7 +348,8 @@ public sealed class StaticSignatureVerificationEngine
         IReadOnlyDictionary<string, List<ReferenceFeature>> referenceFeatures,
         IReadOnlyList<PageImage> pages,
         OcrLayout ocr,
-        SignatureVerificationOptions options)
+        SignatureVerificationOptions options,
+        string documentResultId)
     {
         var plans = new List<SignaturePlan>();
         var resultsBySignatureId = new Dictionary<string, SignatureResult>(StringComparer.OrdinalIgnoreCase);
@@ -391,7 +392,7 @@ public sealed class StaticSignatureVerificationEngine
                     continue;
                 }
 
-                resultsBySignatureId[plan.ReferenceSet.SignatureId] = BuildSignatureResultFromEvaluation(plan.ReferenceSet, plan.Candidates, selected, options, pages);
+                resultsBySignatureId[plan.ReferenceSet.SignatureId] = BuildSignatureResultFromEvaluation(plan.ReferenceSet, plan.Candidates, selected, options, pages, documentResultId);
             }
 
             return referenceSets.Select(set => resultsBySignatureId[set.SignatureId]).ToList();
@@ -553,7 +554,8 @@ public sealed class StaticSignatureVerificationEngine
         IReadOnlyList<DetectedCandidate> candidates,
         CandidateEvaluation selected,
         SignatureVerificationOptions options,
-        IReadOnlyList<PageImage> pages)
+        IReadOnlyList<PageImage> pages,
+        string documentResultId)
     {
         var signatureResult = CreateInitialSignatureResult(referenceSet);
         signatureResult.CandidateRegions = candidates.Select(c => c.Region).ToList();
@@ -580,7 +582,7 @@ public sealed class StaticSignatureVerificationEngine
                 ThresholdsUsed = options.Thresholds,
                 WeightsUsed = options.Weights,
                 Preprocessing = processedQuery.Audit,
-                DebugImages = _debugImageWriter.TryWrite(options, pages, referenceSet.SignatureId, bestCandidate, processedQuery, signatureResult.CandidateRegions, signatureResult.Warnings)
+                DebugImages = _debugImageWriter.TryWrite(options, pages, referenceSet.SignatureId, bestCandidate, processedQuery, signatureResult.CandidateRegions, signatureResult.Warnings, documentResultId)
             };
             return signatureResult;
         }
@@ -618,7 +620,7 @@ public sealed class StaticSignatureVerificationEngine
             ThresholdsUsed = options.Thresholds,
             WeightsUsed = options.Weights,
             Preprocessing = processedQuery.Audit,
-            DebugImages = _debugImageWriter.TryWrite(options, pages, referenceSet.SignatureId, bestCandidate, processedQuery, signatureResult.CandidateRegions, signatureResult.Warnings)
+            DebugImages = _debugImageWriter.TryWrite(options, pages, referenceSet.SignatureId, bestCandidate, processedQuery, signatureResult.CandidateRegions, signatureResult.Warnings, documentResultId)
         };
 
         return signatureResult;
@@ -1993,7 +1995,8 @@ public sealed class DebugImageWriter : IDebugImageWriter
         DetectedCandidate candidate,
         ProcessedSignature processed,
         IReadOnlyList<DetectedRegion> regions,
-        List<string> warnings)
+        List<string> warnings,
+        string documentResultId)
     {
         if (!options.SaveDebugImages || string.IsNullOrWhiteSpace(options.DebugOutputFolder))
         {
@@ -2002,12 +2005,15 @@ public sealed class DebugImageWriter : IDebugImageWriter
 
         try
         {
-            Directory.CreateDirectory(options.DebugOutputFolder);
+            // Nested per-document so concurrent requests reusing the same DebugOutputFolder
+            // (a documented/common caller pattern) never overwrite each other's debug images.
+            var requestFolder = Path.Combine(options.DebugOutputFolder, documentResultId);
+            Directory.CreateDirectory(requestFolder);
             var paths = new Dictionary<string, string>();
             var page = pages.FirstOrDefault(p => p.PageIndex == candidate.Region.PageIndex);
             if (page is not null)
             {
-                var pagePath = Path.Combine(options.DebugOutputFolder, $"page_{page.PageIndex}.png");
+                var pagePath = Path.Combine(requestFolder, $"page_{page.PageIndex}.png");
                 Cv2.ImWrite(pagePath, page.Image);
                 paths["renderedPagePath"] = pagePath;
 
@@ -2017,15 +2023,15 @@ public sealed class DebugImageWriter : IDebugImageWriter
                     Cv2.Rectangle(visualization, new Rect(region.X, region.Y, region.Width, region.Height), Scalar.Red, 2);
                 }
 
-                var candidatePath = Path.Combine(options.DebugOutputFolder, $"page_{page.PageIndex}_{signatureId}_candidates.png");
+                var candidatePath = Path.Combine(requestFolder, $"page_{page.PageIndex}_{signatureId}_candidates.png");
                 Cv2.ImWrite(candidatePath, visualization);
                 paths["candidateVisualizationPath"] = candidatePath;
             }
 
-            paths["rawCropPath"] = Write(Path.Combine(options.DebugOutputFolder, $"{signatureId}_raw.png"), candidate.Crop);
-            paths["cleanedCropPath"] = Write(Path.Combine(options.DebugOutputFolder, $"{signatureId}_cleaned.png"), processed.CroppedBinary);
-            paths["normalizedPath"] = Write(Path.Combine(options.DebugOutputFolder, $"{signatureId}_normalized.png"), processed.NormalizedBinary);
-            paths["skeletonPath"] = Write(Path.Combine(options.DebugOutputFolder, $"{signatureId}_skeleton.png"), processed.SkeletonBinary);
+            paths["rawCropPath"] = Write(Path.Combine(requestFolder, $"{signatureId}_raw.png"), candidate.Crop);
+            paths["cleanedCropPath"] = Write(Path.Combine(requestFolder, $"{signatureId}_cleaned.png"), processed.CroppedBinary);
+            paths["normalizedPath"] = Write(Path.Combine(requestFolder, $"{signatureId}_normalized.png"), processed.NormalizedBinary);
+            paths["skeletonPath"] = Write(Path.Combine(requestFolder, $"{signatureId}_skeleton.png"), processed.SkeletonBinary);
             return paths;
         }
         catch (Exception)

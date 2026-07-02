@@ -41,6 +41,7 @@ database\003_workflow_schema_fixups.sql
 database\004_database_native_storage.sql
 database\005_admin_retention_security.sql
 database\006_seed_verifier_role.sql
+database\007_document_metadata_retention.sql
 ```
 
 Applied migrations are tracked in:
@@ -174,6 +175,9 @@ Default retention policies installed by the same migration:
 | `DefaultDocumentBlobRetention` | `DocumentBlob` | 2555 |
 | `DefaultDebugArtifactBlobRetention` | `DebugArtifactBlob` | 90 |
 | `DefaultReportBlobRetention` | `ReportBlob` | 2555 |
+| `DefaultVerificationDocumentRetention` (migration `007`, installed **inactive**) | `VerificationDocument` | 2555 |
+
+`DefaultVerificationDocumentRetention` must be reviewed with Legal/Compliance and explicitly activated (Admin UI or `POST /api/v1/admin/retention`) before it takes effect — see [Purge Coverage](#purge-coverage).
 
 ## DB-Native Verification Endpoint
 
@@ -405,11 +409,13 @@ If no bootstrap key is supplied through `SIGNATURE_API_KEYS` or `SignatureVerifi
 
 Retention purge is implemented in `SqlProductionWorkflowStore.RunRetentionPurgeAsync`.
 
-- `StorageObject` policies select file/object metadata by explicit `RetainUntilUtc` or policy age.
+- `StorageObject` policies select file/object metadata by explicit `RetainUntilUtc` or policy age. Rows are only written here for files the application itself creates after this fix: debug images from `POST /api/v1/verify`, and Hybrid-mode reference images (API `references/enroll` and the Operations `enroll-reference` command). `/api/v1/verify-db-native` debug images are not registered because they are already deleted synchronously once copied into `DebugArtifactBlob`.
 - `DocumentBlob`, `DebugArtifactBlob`, and `ReportBlob` policies delete DB-native blobs by explicit `RetainUntilUtc` or policy age.
-- `FilePurgeEnabled` controls whether eligible filesystem objects are physically deleted by the Admin UI purge path.
+- `VerificationDocument` (and everything that cascades from it: `SignatureCase`, `ReferenceComparison`, `DebugArtifact`, `ReviewerOutcome`, `ReviewCase`, `ResultGovernanceSnapshot`) is purged by `CreatedUtc` only when the `DefaultVerificationDocumentRetention` policy is active. It ships inactive — see above.
+- `FilePurgeEnabled` controls whether eligible filesystem objects are physically deleted when a real (non-dry-run) purge runs.
 - `DatabaseBlobPurgeEnabled=false` disables DB-native blob deletion.
-- Purge activity is recorded in `ssv.PurgeRun` and `ssv.PurgeRunItem`.
+- **Dry run** (`dryRun: true` on `POST /api/v1/retention/purge` or `POST /api/v1/admin/retention/purge?dryRun=true`, or `--dryRun true` on the Operations `purge` command) performs no filesystem or database mutation at all — it only records what would be purged, with `PurgeRunItem.Status = 'WouldPurge'` and `PurgeRun.Status = 'CompletedDryRun'`. Use it to preview a purge before committing to one.
+- Purge activity is recorded in `ssv.PurgeRun` and `ssv.PurgeRunItem`, including `StorageObjectId` linkage for `StorageObject`-sourced candidates.
 
 ## Production Notes
 

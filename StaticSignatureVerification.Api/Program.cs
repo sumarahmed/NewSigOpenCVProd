@@ -61,7 +61,12 @@ app.MapPost("/api/v1/verify", async (HttpContext context, JsonElement body) =>
     var store = new SqlVerificationResultStore(connectionString);
     var record = JsonVerificationResultMapper.FromJson(resultJson, documentName: requestId, sourceDocumentPath: null, resultPath: null);
     await store.UpsertVerificationResultAsync(record);
-    await new SqlProductionWorkflowStore(connectionString).LogAuditEventAsync(new AuditEventRecord("ApiVerify", "Information", requestId, context.User.Identity?.Name, "VerificationDocument", record.DocumentResultId, "Verification request completed.", null));
+    var workflowStore = new SqlProductionWorkflowStore(connectionString);
+    foreach (var artifact in record.SignatureCases.SelectMany(c => c.DebugArtifacts))
+    {
+        await workflowStore.RegisterStorageObjectAsync("DebugArtifact", "VerificationDocument", record.DocumentResultId, artifact.ArtifactPath, DateTimeOffset.UtcNow, null);
+    }
+    await workflowStore.LogAuditEventAsync(new AuditEventRecord("ApiVerify", "Information", requestId, context.User.Identity?.Name, "VerificationDocument", record.DocumentResultId, "Verification request completed.", null));
     return Results.Text(resultJson, "application/json");
 });
 
@@ -158,7 +163,8 @@ app.MapPost("/api/v1/references/enroll", async (HttpContext context, ReferenceEn
         stored.IsEncrypted,
         stored.SizeBytes
     }, SignatureJsonOptions.Compact);
-    var id = await new SqlProductionWorkflowStore(connectionString).EnrollReferenceAsync(new ReferenceEnrollmentRecord(
+    var workflowStore = new SqlProductionWorkflowStore(connectionString);
+    var id = await workflowStore.EnrollReferenceAsync(new ReferenceEnrollmentRecord(
         request.ReferenceSetId,
         request.ReferenceId,
         request.SignatureId,
@@ -181,6 +187,11 @@ app.MapPost("/api/v1/references/enroll", async (HttpContext context, ReferenceEn
     {
         await nativeStore.SaveReferenceImageBlobAsync(id, request.ContentType ?? "image/png", imageBytes);
     }
+    else
+    {
+        await workflowStore.RegisterStorageObjectAsync("ReferenceImage", "ReferenceImageRegistry", id.ToString(), stored.StorageUri, DateTimeOffset.UtcNow, null, stored.SizeBytes);
+    }
+
     return Results.Ok(new { referenceImageRegistryId = id, quality.Status, quality.Score, quality.Passed, quality.Warnings });
 });
 
@@ -227,7 +238,7 @@ app.MapPost("/api/v1/retention/purge", async (HttpContext context, PurgeRequest 
 {
     var auth = RequireRole(context, apiKeys, "Administrator");
     if (auth is not null) return auth;
-    var result = await new SqlProductionWorkflowStore(connectionString).RunRetentionPurgeAsync(DateTimeOffset.UtcNow, Actor(context), request.DeleteFiles);
+    var result = await new SqlProductionWorkflowStore(connectionString).RunRetentionPurgeAsync(DateTimeOffset.UtcNow, Actor(context), request.DeleteFiles, request.DryRun);
     return Results.Ok(result);
 });
 
@@ -308,8 +319,10 @@ app.MapPost("/api/v1/admin/retention/purge", async (HttpContext context) =>
 {
     var auth = RequireRole(context, apiKeys, "Administrator");
     if (auth is not null) return auth;
+    var dryRun = context.Request.Query.TryGetValue("dryRun", out var dryRunValue) &&
+                 string.Equals(dryRunValue, "true", StringComparison.OrdinalIgnoreCase);
     var filePurge = string.Equals(await AdminData.GetSettingAsync(connectionString, "FilePurgeEnabled"), "true", StringComparison.OrdinalIgnoreCase);
-    var result = await new SqlProductionWorkflowStore(connectionString).RunRetentionPurgeAsync(DateTimeOffset.UtcNow, Actor(context), filePurge);
+    var result = await new SqlProductionWorkflowStore(connectionString).RunRetentionPurgeAsync(DateTimeOffset.UtcNow, Actor(context), filePurge, dryRun);
     return Results.Ok(result);
 });
 
@@ -799,7 +812,7 @@ public sealed record ReferenceEnrollRequest(
 public sealed record StatusRequest(string? ReasonCode, string? Notes);
 public sealed record DuplicateScanRequest(double Threshold);
 public sealed record ReviewCaseActionRequest(string? AssignedTo, string? Notes);
-public sealed record PurgeRequest(bool DeleteFiles);
+public sealed record PurgeRequest(bool DeleteFiles, bool DryRun = false);
 public sealed record StorageModeRequest(string StorageMode);
 public sealed record RetentionPolicyRequest(string PolicyName, string TargetObjectType, int RetentionDays, bool IsActive = true);
 public sealed record PurgeSettingsRequest(bool FilePurgeEnabled, bool DatabaseBlobPurgeEnabled);
@@ -1160,6 +1173,13 @@ table{width:100%;border-collapse:collapse;background:var(--panel);font-size:13px
       </div>
     </div>
     <div id="retentionTable"></div>
+    <div class="band">
+      <div class="formrow">
+        <div class="field"><label>Mode</label><select id="purgeDryRun"><option value="true">Dry run (preview only)</option><option value="false">Purge for real</option></select></div>
+        <div><button id="runPurge" class="primary">Run purge now</button></div>
+      </div>
+      <div id="purgeRunResult"></div>
+    </div>
   </section>
 
   <section id="keys">
@@ -1269,6 +1289,7 @@ qsa(".filter").forEach(i=>i.oninput=()=>filterTable(i.dataset.filter,i.value));
 qs("#saveStorageMode").onclick=saveStorageMode;
 qs("#savePurgeSettings").onclick=savePurgeSettings;
 qs("#saveRetention").onclick=saveRetention;
+qs("#runPurge").onclick=runPurge;
 qs("#policyName").onchange=syncRetentionForm;
 qs("#createApiKey").onclick=createApiKey;
 qs("#grantRole").onclick=grantRole;
@@ -1344,6 +1365,15 @@ async function savePurgeSettings(){
 }
 async function saveRetention(){
   try{const selected=state.retentionPolicies?.find(row=>row.PolicyName===qs("#policyName").value);if(!selected)throw new Error("Select a retention policy.");const payload={policyName:selected.PolicyName,targetObjectType:selected.TargetObjectType,retentionDays:Number(qs("#retentionDays").value),isActive:qs("#retentionActive").value==="true"};await api("/api/v1/admin/retention",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});msg("Retention policy saved.","ok");await loadRetention();}catch(e){msg(e.message,"bad");}
+}
+async function runPurge(){
+  try{
+    const dryRun=qs("#purgeDryRun").value==="true";
+    if(!dryRun&&!confirm("This will permanently delete purge-eligible files and database rows. Continue?"))return;
+    const result=await api(`/api/v1/admin/retention/purge?dryRun=${dryRun}`,{method:"POST"});
+    qs("#purgeRunResult").innerHTML=table([result],"purgeRunRows");
+    msg(dryRun?"Dry run complete. Nothing was deleted.":"Purge completed.","ok");
+  }catch(e){msg(e.message,"bad");}
 }
 async function createApiKey(){
   try{const payload={keyName:qs("#apiKeyName").value.trim(),roles:selectedApiRoles(),expiresUtc:qs("#apiKeyExpires").value.trim()||null,notes:qs("#apiKeyNotes").value.trim()||null};const result=await api("/api/v1/admin/api-keys",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});qs("#createdApiKey").textContent=`Key name: ${result.keyName}\nSecret key: ${result.apiKey}\nRoles: ${result.rolesCsv}\nStore the secret key now; it will not be shown again.`;msg("API key created.","ok");await loadApiKeys();}catch(e){msg(e.message,"bad");}

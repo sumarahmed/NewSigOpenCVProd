@@ -132,6 +132,10 @@ static async Task EnrollReference(Cli cli, SqlProductionWorkflowStore store)
         await nativeStore.SaveReferenceImageBlobAsync(id, ContentType(imageFile), bytes);
         Console.WriteLine("Reference image bytes stored in SQL.");
     }
+    else
+    {
+        await store.RegisterStorageObjectAsync("ReferenceImage", "ReferenceImageRegistry", id.ToString(), stored.StorageUri, DateTimeOffset.UtcNow, null, stored.SizeBytes);
+    }
 
     Console.WriteLine($"Reference enrolled: {referenceId}");
     Console.WriteLine($"ReferenceImageRegistryId: {id}");
@@ -208,8 +212,14 @@ static async Task SetRetention(Cli cli, SqlProductionWorkflowStore store)
 
 static async Task Purge(Cli cli, SqlProductionWorkflowStore store)
 {
-    var result = await store.RunRetentionPurgeAsync(DateTimeOffset.UtcNow, cli.Get("--actor") ?? Environment.UserName, cli.Bool("--deleteFiles", false));
+    var dryRun = cli.Bool("--dryRun", false);
+    var result = await store.RunRetentionPurgeAsync(DateTimeOffset.UtcNow, cli.Get("--actor") ?? Environment.UserName, cli.Bool("--deleteFiles", false), dryRun);
     Console.WriteLine($"Purge run {result.PurgeRunId}: {result.Status}. Candidates={result.CandidateCount}, Purged={result.PurgedCount}");
+    if (dryRun)
+    {
+        Console.WriteLine("Dry run: no files or database rows were deleted. Re-run without --dryRun to purge for real.");
+    }
+
     if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
     {
         Console.WriteLine(result.ErrorMessage);

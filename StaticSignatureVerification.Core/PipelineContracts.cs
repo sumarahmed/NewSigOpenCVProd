@@ -65,7 +65,8 @@ public interface IDebugImageWriter
         DetectedCandidate candidate,
         ProcessedSignature processed,
         IReadOnlyList<DetectedRegion> allCandidates,
-        List<string> warnings);
+        List<string> warnings,
+        string documentResultId);
 }
 
 public interface IResultBuilder
