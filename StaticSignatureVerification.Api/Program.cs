@@ -8,6 +8,14 @@ using System.Text.Json;
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole();
+builder.WebHost.ConfigureKestrel(options =>
+{
+    // Explicit, deliberate limit rather than relying on Kestrel's default. Generous headroom
+    // above the in-app decoded-content checks (SignatureVerificationCore.MaxDocumentBytes etc.)
+    // since Base64 inflates size ~33% and a request can carry a document plus several reference
+    // images - legitimate requests should hit those friendlier, structured checks, not a bare 413.
+    options.Limits.MaxRequestBodySize = 100 * 1024 * 1024;
+});
 
 var app = builder.Build();
 var runtimeOptions = new EnvironmentSignatureVerificationConfigService().GetRuntimeOptions();
@@ -15,7 +23,7 @@ var connectionString = app.Configuration["SignatureVerification:ConnectionString
                        runtimeOptions.DatabaseConnectionString ??
                        DbStorageDefaults.DefaultLocalDbConnectionString;
 var serviceStartedUtc = DateTimeOffset.UtcNow;
-var apiKeys = ApiKeyRegistry.Load(app.Configuration["SignatureVerification:ApiKeys"] ?? Environment.GetEnvironmentVariable("SIGNATURE_API_KEYS"), connectionString);
+var apiKeys = ApiKeyRegistry.Load(app.Configuration["SignatureVerification:ApiKeys"] ?? Environment.GetEnvironmentVariable("SIGNATURE_API_KEYS"), connectionString, app.Logger);
 
 app.Use(async (context, next) =>
 {
@@ -37,6 +45,13 @@ app.Use(async (context, next) =>
     {
         var requestId = Convert.ToString(context.Items["requestId"]) ?? Guid.NewGuid().ToString("N");
         app.Logger.LogError(ex, "Unhandled API error for request {RequestId}", requestId);
+        if (context.Response.HasStarted)
+        {
+            // The response has already begun streaming to the client - headers/status code
+            // can no longer be changed and attempting to write here would itself throw.
+            return;
+        }
+
         context.Response.StatusCode = StatusCodes.Status500InternalServerError;
         context.Response.ContentType = "application/json";
         await context.Response.WriteAsJsonAsync(new
@@ -105,8 +120,14 @@ app.MapPost("/api/v1/verify-db-native", async (HttpContext context, DbNativeVeri
         RetainUntilUtc: null,
         MetadataJson: JsonSerializer.Serialize(new { request.SignatureMappings }, SignatureJsonOptions.Compact)));
 
+    // Server-generated, independent of the client-supplied correlationId/requestId (the latter
+    // is settable via the X-Request-ID header). Using a client-influenceable value here would let
+    // a caller steer the debug folder path, and two concurrent requests sharing a correlation ID
+    // would otherwise race on cleanup - the first request's TryDeleteDirectory below would
+    // recursively delete the whole folder out from under a second still-in-flight request.
+    var debugToken = Guid.NewGuid().ToString("N");
     var referencesJson = await nativeStore.BuildReferenceSignaturesJsonAsync(request.SignatureMappings.Select(m => new DbNativeReferenceRequest(m.SignatureId, m.ReferenceSetId, m.PartyId)).ToList());
-    var optionsJson = MergeDbNativeOptions(request.OptionsJson, request.CorrelationId ?? requestId);
+    var optionsJson = MergeDbNativeOptions(request.OptionsJson, request.CorrelationId ?? requestId, debugToken);
     var wrapperRequest = JsonSerializer.Serialize(new
     {
         correlationId = request.CorrelationId ?? requestId,
@@ -123,7 +144,7 @@ app.MapPost("/api/v1/verify-db-native", async (HttpContext context, DbNativeVeri
     await new SqlVerificationResultStore(connectionString).UpsertVerificationResultAsync(record);
     await nativeStore.LinkDocumentBlobToResultAsync(documentBlobKey, record.DocumentResultId);
     await nativeStore.SaveDebugArtifactBlobsAsync(record.DocumentResultId);
-    TryDeleteDirectory(DbNativeDebugFolder(request.CorrelationId ?? requestId));
+    TryDeleteDirectory(DbNativeDebugFolder(debugToken));
     await new SqlProductionWorkflowStore(connectionString).LogAuditEventAsync(new AuditEventRecord("ApiVerifyDbNative", "Information", request.CorrelationId ?? requestId, Actor(context), "VerificationDocument", record.DocumentResultId, "DB-native verification request completed.", null));
     return Results.Text(resultJson, "application/json");
 });
@@ -138,7 +159,16 @@ app.MapPost("/api/v1/references/enroll", async (HttpContext context, ReferenceEn
         return BadRequest("INVALID_REFERENCE_IMAGE_BASE64", "imageBase64 must be valid Base64.");
     }
 
-    var quality = ReferenceQualityAnalyzer.Analyze(imageBytes);
+    ReferenceQualityResult quality;
+    try
+    {
+        quality = ReferenceQualityAnalyzer.Analyze(imageBytes);
+    }
+    catch (InvalidOperationException ex)
+    {
+        return BadRequest("UNSUPPORTED_REFERENCE_IMAGE_FORMAT", ex.Message);
+    }
+
     var nativeStore = new SqlDatabaseNativeStore(connectionString);
     var storageMode = await nativeStore.GetStorageModeAsync();
     var stored = storageMode == SignatureStorageMode.Database
@@ -495,12 +525,12 @@ app.MapGet("/api/v1/admin/templates/{formTemplateId:long}/zones", async (HttpCon
 {
     var auth = RequireRole(context, apiKeys, "Administrator", "Auditor");
     if (auth is not null) return auth;
-    var rows = await AdminData.QueryAsync(connectionString, $"""
+    var rows = await AdminData.QueryAsync(connectionString, """
 SELECT FormTemplateZoneId, FormTemplateId, SignatureId, DisplayName, PageIndex, X, Y, Width, Height, CoordinateSystem, ExpectedLabel, IsRequired
 FROM ssv.FormTemplateZone
-WHERE FormTemplateId = {formTemplateId}
+WHERE FormTemplateId = @FormTemplateId
 ORDER BY PageIndex, SignatureId;
-""");
+""", command => AdminData.AddLong(command, "@FormTemplateId", formTemplateId));
     return Results.Ok(rows);
 });
 
@@ -612,7 +642,8 @@ app.MapGet("/api/v1/admin/service-status", async (HttpContext context) =>
     catch (Exception ex)
     {
         dbStatus = "failed";
-        dbMessage = ex.Message;
+        dbMessage = "Database connectivity check failed. See server logs for details.";
+        app.Logger.LogError(ex, "Service-status database probe failed.");
     }
 
     return Results.Ok(new
@@ -729,14 +760,25 @@ static async Task<IResult> ReferenceStatus(HttpContext context, ApiKeyRegistry a
 
 static IResult? RequireRole(HttpContext context, ApiKeyRegistry registry, params string[] roles)
 {
-    if (!context.Request.Headers.TryGetValue("X-API-Key", out var key) ||
-        !registry.TryAuthorize(key.ToString(), roles, out var principal))
+    if (!context.Request.Headers.TryGetValue("X-API-Key", out var key))
     {
         return Results.Json(new { error = "UNAUTHORIZED", message = "A valid X-API-Key with the required role is required." }, statusCode: 401);
     }
 
-    context.Items["principal"] = principal;
-    return null;
+    var outcome = registry.TryAuthorize(key.ToString(), roles, out var principal);
+    switch (outcome)
+    {
+        case ApiKeyAuthOutcome.Authorized:
+            context.Items["principal"] = principal;
+            return null;
+        case ApiKeyAuthOutcome.ServiceUnavailable:
+            // Distinct from an invalid key: the database-backed key store could not be reached,
+            // so this is not a real authorization decision. Logged server-side in
+            // ApiKeyRegistry.TryAuthorizeDatabaseKey.
+            return Results.Json(new { error = "AUTH_SERVICE_UNAVAILABLE", message = "Authorization could not be completed because the database-backed API key store is unreachable. Try again shortly." }, statusCode: 503);
+        default:
+            return Results.Json(new { error = "UNAUTHORIZED", message = "A valid X-API-Key with the required role is required." }, statusCode: 401);
+    }
 }
 
 static string Actor(HttpContext context) => Convert.ToString(context.Items["principal"]) ?? "api";
@@ -763,22 +805,22 @@ static bool TryReadBase64(string? base64, out byte[] bytes)
     }
 }
 
-static string MergeDbNativeOptions(string? optionsJson, string correlationId)
+static string MergeDbNativeOptions(string? optionsJson, string correlationId, string debugToken)
 {
     var node = string.IsNullOrWhiteSpace(optionsJson)
         ? new System.Text.Json.Nodes.JsonObject()
         : System.Text.Json.Nodes.JsonNode.Parse(optionsJson)?.AsObject() ?? new System.Text.Json.Nodes.JsonObject();
     node["correlationId"] = correlationId;
     node["saveDebugImages"] = true;
-    node["debugOutputFolder"] = DbNativeDebugFolder(correlationId);
+    node["debugOutputFolder"] = DbNativeDebugFolder(debugToken);
     return node.ToJsonString(SignatureJsonOptions.Compact);
 }
 
 static string DbReferenceStorageUri(string referenceSetId, string referenceId) =>
     "sql://ssv.ReferenceImageBlob/reference/" + Uri.EscapeDataString(referenceSetId) + "/" + Uri.EscapeDataString(referenceId);
 
-static string DbNativeDebugFolder(string correlationId) =>
-    Path.Combine(Path.GetTempPath(), "SignatureVerificationDbNative", correlationId, "debug");
+static string DbNativeDebugFolder(string debugToken) =>
+    Path.Combine(Path.GetTempPath(), "SignatureVerificationDbNative", debugToken, "debug");
 
 static void TryDeleteDirectory(string path)
 {
@@ -842,18 +884,27 @@ public sealed record DbNativeSignatureMapping(
     string? ExpectedSignerId,
     string? Source);
 
+public enum ApiKeyAuthOutcome
+{
+    Authorized,
+    Denied,
+    ServiceUnavailable
+}
+
 public sealed class ApiKeyRegistry
 {
     private readonly Dictionary<string, (string Principal, HashSet<string> Roles)> _keys;
     private readonly string _connectionString;
+    private readonly Microsoft.Extensions.Logging.ILogger _logger;
 
-    private ApiKeyRegistry(Dictionary<string, (string Principal, HashSet<string> Roles)> keys, string connectionString)
+    private ApiKeyRegistry(Dictionary<string, (string Principal, HashSet<string> Roles)> keys, string connectionString, Microsoft.Extensions.Logging.ILogger logger)
     {
         _keys = keys;
         _connectionString = connectionString;
+        _logger = logger;
     }
 
-    public static ApiKeyRegistry Load(string? config, string connectionString)
+    public static ApiKeyRegistry Load(string? config, string connectionString, Microsoft.Extensions.Logging.ILogger logger)
     {
         var keys = new Dictionary<string, (string, HashSet<string>)>(StringComparer.Ordinal);
         foreach (var part in (config ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -873,21 +924,21 @@ public sealed class ApiKeyRegistry
             Console.Error.WriteLine("No config API keys were found. Database-managed API keys must exist in ssv.ApiKeyRegistry.");
         }
 
-        return new ApiKeyRegistry(keys, connectionString);
+        return new ApiKeyRegistry(keys, connectionString, logger);
     }
 
-    public bool TryAuthorize(string key, IEnumerable<string> requiredRoles, out string principal)
+    public ApiKeyAuthOutcome TryAuthorize(string key, IEnumerable<string> requiredRoles, out string principal)
     {
         principal = "";
         if (_keys.TryGetValue(key, out var entry))
         {
             if (!requiredRoles.Any(role => entry.Roles.Contains(role)))
             {
-                return false;
+                return ApiKeyAuthOutcome.Denied;
             }
 
             principal = entry.Principal;
-            return true;
+            return ApiKeyAuthOutcome.Authorized;
         }
 
         return TryAuthorizeDatabaseKey(key, requiredRoles, out principal);
@@ -896,7 +947,7 @@ public sealed class ApiKeyRegistry
     public static string HashKey(string key) =>
         Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key))).ToLowerInvariant();
 
-    private bool TryAuthorizeDatabaseKey(string key, IEnumerable<string> requiredRoles, out string principal)
+    private ApiKeyAuthOutcome TryAuthorizeDatabaseKey(string key, IEnumerable<string> requiredRoles, out string principal)
     {
         principal = "";
         try
@@ -912,31 +963,34 @@ WHERE KeyHash = @KeyHash
   AND RevokedUtc IS NULL
   AND (ExpiresUtc IS NULL OR ExpiresUtc > sysutcdatetime());
 """;
-            command.Parameters.AddWithValue("@KeyHash", HashKey(key));
+            AdminData.AddString(command, "@KeyHash", HashKey(key));
             using var reader = command.ExecuteReader();
             if (!reader.Read())
             {
-                return false;
+                return ApiKeyAuthOutcome.Denied;
             }
 
             var apiKeyId = reader.GetInt64(0);
             var roles = reader.GetString(1).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.OrdinalIgnoreCase);
             if (!requiredRoles.Any(role => roles.Contains(role)))
             {
-                return false;
+                return ApiKeyAuthOutcome.Denied;
             }
 
             principal = "api-key-db-" + apiKeyId.ToString(System.Globalization.CultureInfo.InvariantCulture);
             reader.Close();
             using var update = connection.CreateCommand();
             update.CommandText = "UPDATE ssv.ApiKeyRegistry SET LastUsedUtc = sysutcdatetime() WHERE ApiKeyId = @ApiKeyId;";
-            update.Parameters.AddWithValue("@ApiKeyId", apiKeyId);
+            AdminData.AddLong(update, "@ApiKeyId", apiKeyId);
             update.ExecuteNonQuery();
-            return true;
+            return ApiKeyAuthOutcome.Authorized;
         }
-        catch
+        catch (Exception ex)
         {
-            return false;
+            // A DB outage must never look identical to "key not found" - that masks the real
+            // cause as a wave of 401s and wastes on-call time chasing the wrong problem.
+            _logger.LogError(ex, "Database-backed API key authorization failed - treating as service unavailable rather than denied.");
+            return ApiKeyAuthOutcome.ServiceUnavailable;
         }
     }
 }
@@ -1012,13 +1066,13 @@ WHEN NOT MATCHED THEN INSERT(SettingKey, SettingValue, UpdatedBy) VALUES(@Settin
         });
     }
 
-    public static async Task<Dictionary<string, object?>> QuerySingleAsync(string connectionString, string sql)
+    public static async Task<Dictionary<string, object?>> QuerySingleAsync(string connectionString, string sql, Action<Microsoft.Data.SqlClient.SqlCommand>? parameters = null)
     {
-        var rows = await QueryAsync(connectionString, sql);
+        var rows = await QueryAsync(connectionString, sql, parameters);
         return rows.FirstOrDefault() ?? new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
     }
 
-    public static async Task<List<Dictionary<string, object?>>> QueryAsync(string connectionString, string sql)
+    public static async Task<List<Dictionary<string, object?>>> QueryAsync(string connectionString, string sql, Action<Microsoft.Data.SqlClient.SqlCommand>? parameters = null)
     {
         var rows = new List<Dictionary<string, object?>>();
         await using var connection = new Microsoft.Data.SqlClient.SqlConnection(connectionString);
@@ -1026,6 +1080,7 @@ WHEN NOT MATCHED THEN INSERT(SettingKey, SettingValue, UpdatedBy) VALUES(@Settin
         await using var command = connection.CreateCommand();
         command.CommandTimeout = 120;
         command.CommandText = sql;
+        parameters?.Invoke(command);
         await using var reader = await command.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {

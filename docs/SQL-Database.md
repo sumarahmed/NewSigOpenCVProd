@@ -415,7 +415,13 @@ Retention purge is implemented in `SqlProductionWorkflowStore.RunRetentionPurgeA
 - `FilePurgeEnabled` controls whether eligible filesystem objects are physically deleted when a real (non-dry-run) purge runs.
 - `DatabaseBlobPurgeEnabled=false` disables DB-native blob deletion.
 - **Dry run** (`dryRun: true` on `POST /api/v1/retention/purge` or `POST /api/v1/admin/retention/purge?dryRun=true`, or `--dryRun true` on the Operations `purge` command) performs no filesystem or database mutation at all — it only records what would be purged, with `PurgeRunItem.Status = 'WouldPurge'` and `PurgeRun.Status = 'CompletedDryRun'`. Use it to preview a purge before committing to one.
+- `ReferenceImageBlob` is **intentionally excluded** from purge — it holds approved reference signatures actively used for ongoing verification, not transactional output, so age-based deletion would be harmful. Its lifecycle is governed by `EnrollmentStatus`/`RetiredUtc` (enroll → approve → retire) instead of a retention window.
 - Purge activity is recorded in `ssv.PurgeRun` and `ssv.PurgeRunItem`, including `StorageObjectId` linkage for `StorageObject`-sourced candidates.
+- Each candidate's metadata delete and its `PurgeRunItem` audit row commit or roll back together in one SQL transaction, so a crash between the two can never leave a purged row with no audit trail. File deletion is deliberately outside that transaction (filesystem operations can't participate in a SQL transaction) and is best-effort.
+
+## Connection Resilience
+
+All three store classes (`SqlProductionWorkflowStore`, `SqlDatabaseNativeStore`, `SqlVerificationResultStore`) retry opening a SQL connection up to 3 times with short backoff on standard transient SQL error codes (timeout, `4060`, `40197`, `40501`, `40613`, `10928`, `10929`, and similar network-level failures) via `TransientSqlRetry`. This is scoped to connection-open only — a command already in flight is not retried, since that isn't safe without per-statement idempotency guarantees.
 
 ## Production Notes
 

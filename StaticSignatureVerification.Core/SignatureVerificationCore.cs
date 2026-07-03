@@ -10,6 +10,8 @@ namespace StaticSignatureVerification.Core;
 public sealed class StaticSignatureVerificationEngine
 {
     private const string EngineVersion = "1.0.0";
+    private const long MaxDocumentBytes = 50L * 1024 * 1024;
+    private const long MaxReferenceImageBytes = 15L * 1024 * 1024;
     private readonly IDocumentInputDetector _inputDetector;
     private readonly IOcrLayoutParser _ocrParser;
     private readonly ISignatureDetector _detector;
@@ -119,6 +121,17 @@ public sealed class StaticSignatureVerificationEngine
         {
             return CompleteOperationalAudit(
                 _resultBuilder.CreateError(EngineVersion, "INVALID_BASE64_DOCUMENT", "The documentBase64 value is not valid Base64."),
+                startedUtc,
+                stopwatch,
+                options,
+                references,
+                null);
+        }
+
+        if (documentBytes.LongLength > MaxDocumentBytes)
+        {
+            return CompleteOperationalAudit(
+                _resultBuilder.CreateError(EngineVersion, "DOCUMENT_TOO_LARGE", $"The decoded document ({documentBytes.LongLength} bytes) exceeds the maximum allowed size of {MaxDocumentBytes} bytes."),
                 startedUtc,
                 stopwatch,
                 options,
@@ -324,6 +337,11 @@ public sealed class StaticSignatureVerificationEngine
                 try
                 {
                     var bytes = Convert.FromBase64String(reference.ImageBase64);
+                    if (bytes.LongLength > MaxReferenceImageBytes)
+                    {
+                        throw new InvalidOperationException($"Reference image ({bytes.LongLength} bytes) exceeds the maximum allowed size of {MaxReferenceImageBytes} bytes.");
+                    }
+
                     using var image = DocumentInputDetector.DecodeImageBytes(bytes, ImreadModes.Grayscale);
                     var processed = _preprocessor.Preprocess(image, options, reference.ReferenceId);
                     var metrics = _featureExtractor.Extract(processed, processed.NormalizedBinary, 100);
@@ -747,6 +765,8 @@ public sealed class PdfRenderOptions
 
 public sealed class DocumentInputDetector : IDocumentInputDetector
 {
+    private const long MaxDecodedImagePixels = 100_000_000;
+
     public InputDocumentType Detect(byte[] bytes, string? requestedType)
     {
         if (string.Equals(requestedType, "PDF", StringComparison.OrdinalIgnoreCase))
@@ -770,6 +790,14 @@ public sealed class DocumentInputDetector : IDocumentInputDetector
         if (mat.Empty())
         {
             throw new SignatureVerificationException("UNSUPPORTED_IMAGE_FORMAT", "OpenCV could not decode the supplied image.");
+        }
+
+        if ((long)mat.Width * mat.Height > MaxDecodedImagePixels)
+        {
+            var width = mat.Width;
+            var height = mat.Height;
+            mat.Dispose();
+            throw new SignatureVerificationException("IMAGE_DIMENSIONS_TOO_LARGE", $"Decoded image dimensions ({width}x{height}) exceed the maximum allowed pixel count of {MaxDecodedImagePixels}.");
         }
 
         return mat;
@@ -1223,7 +1251,7 @@ public sealed class SignaturePreprocessor : ISignaturePreprocessor
         var binary = new Mat();
         Cv2.Threshold(denoised, binary, 0, 255, ThresholdTypes.BinaryInv | ThresholdTypes.Otsu);
 
-        RemoveLines(binary);
+        audit.ResidualBorderLineDetected = RemoveLines(binary);
         var deskewAngle = EstimateDeskewAngle(binary);
         audit.DeskewAngleDegrees = Math.Round(deskewAngle, 2);
         if (Math.Abs(deskewAngle) >= _profile.MinimumDeskewDegrees && Math.Abs(deskewAngle) <= _profile.MaximumDeskewDegrees)
@@ -1239,7 +1267,8 @@ public sealed class SignaturePreprocessor : ISignaturePreprocessor
         return new ProcessedSignature(debugName, sourceGray.Clone(), binary, cropped, normalized, skeleton, audit);
     }
 
-    private static void RemoveLines(Mat binary)
+    /// <returns>True if a line/border-like structure survived removal (see ResidualBorderLineDetected).</returns>
+    private static bool RemoveLines(Mat binary)
     {
         using var horizontalKernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(Math.Max(60, binary.Width / 3), 1));
         using var verticalKernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(1, Math.Max(80, binary.Height * 2 / 3)));
@@ -1249,6 +1278,16 @@ public sealed class SignaturePreprocessor : ISignaturePreprocessor
         Cv2.MorphologyEx(binary, vertical, MorphTypes.Open, verticalKernel);
         Cv2.Subtract(binary, horizontal, binary);
         Cv2.Subtract(binary, vertical, binary);
+
+        // Verify the removal actually worked: re-run the same line-detecting morphology against
+        // the post-subtraction image. Any non-zero pixels here mean a border/line survived (e.g.
+        // thicker or more broken than these kernels can fully capture), which can quietly pollute
+        // downstream ink-density/skeleton features if left unflagged.
+        using var residualHorizontal = new Mat();
+        using var residualVertical = new Mat();
+        Cv2.MorphologyEx(binary, residualHorizontal, MorphTypes.Open, horizontalKernel);
+        Cv2.MorphologyEx(binary, residualVertical, MorphTypes.Open, verticalKernel);
+        return Cv2.CountNonZero(residualHorizontal) > 0 || Cv2.CountNonZero(residualVertical) > 0;
     }
 
     private static double EstimateDeskewAngle(Mat binary)
@@ -2666,6 +2705,7 @@ public sealed class PreprocessingAudit
     public bool DenoiseApplied { get; set; }
     public string BinarizationMethod { get; set; } = "Otsu";
     public bool LineRemovalApplied { get; set; }
+    public bool ResidualBorderLineDetected { get; set; }
     public bool BoxBorderRemovalApplied { get; set; }
     public bool WhitespaceCropApplied { get; set; }
     public int NormalizedCanvasWidth { get; set; } = 512;
@@ -2700,6 +2740,12 @@ public sealed class SignatureVerificationException : Exception
 {
     public SignatureVerificationException(string code, string message)
         : base(message)
+    {
+        Code = code;
+    }
+
+    public SignatureVerificationException(string code, string message, Exception innerException)
+        : base(message, innerException)
     {
         Code = code;
     }

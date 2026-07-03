@@ -574,10 +574,22 @@ Security:
 
 - API authentication is API-key based. Bootstrap keys come from `SIGNATURE_API_KEYS` or `SignatureVerification:ApiKeys`; DB-managed keys are stored hashed in `ssv.ApiKeyRegistry`.
 - API keys map to roles: `Administrator`, `ReferenceApprover`, `Reviewer`, `Auditor`, `Verifier`.
+- An invalid or missing key returns `401 UNAUTHORIZED`. If the database-backed key store itself is unreachable, the API returns `503 AUTH_SERVICE_UNAVAILABLE` instead — this is deliberately distinct from a real authorization denial, and the underlying failure is logged server-side.
 - API logs are structured JSON and must remain payload-safe.
 - Reference image storage uses Windows DPAPI when `--encrypt true`.
 - Installer-generated API keys and database connection strings are written under the install `secrets` folder and ACL-restricted to Administrators, SYSTEM, and the installing user.
 - Treat debug images, DB-native document/reference/debug blobs, review exports, and generated result JSON as sensitive operational data.
+
+## Request & Image Size Limits
+
+Defense-in-depth limits, enforced at three layers so oversized/malicious payloads are rejected with a clear error rather than causing uncontrolled memory/CPU use:
+
+| Layer | Limit | Where enforced |
+| --- | --- | --- |
+| HTTP request body | 100 MB | Kestrel (`MaxRequestBodySize`), `StaticSignatureVerification.Api/Program.cs` |
+| Decoded document | 50 MB | `SignatureVerificationCore.Verify` — returns `DOCUMENT_TOO_LARGE`; covers both `/api/v1/verify` and `/api/v1/verify-db-native` |
+| Decoded reference image | 15 MB | Inline references in `PreprocessReferences` (skipped with a warning) and `ReferenceQualityAnalyzer` (used by `/api/v1/references/enroll` and the Operations `enroll-reference` command) |
+| Decoded image pixel count | 100 megapixels | `DocumentInputDetector.DecodeImageBytes` — returns `IMAGE_DIMENSIONS_TOO_LARGE`; guards against a small-byte-count image that decompresses to an enormous pixel grid, which a byte-size cap alone would not catch |
 
 ## Cleaning Synthetic Data
 

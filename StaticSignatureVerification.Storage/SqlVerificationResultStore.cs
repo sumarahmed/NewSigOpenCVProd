@@ -14,10 +14,12 @@ public sealed class SqlVerificationResultStore : IVerificationResultStore, IRevi
             : connectionString;
     }
 
+    private async Task<SqlConnection> OpenAsync(CancellationToken cancellationToken) =>
+        await TransientSqlRetry.OpenConnectionAsync(_connectionString, cancellationToken).ConfigureAwait(false);
+
     public async Task UpsertVerificationResultAsync(VerificationResultRecord result, CancellationToken cancellationToken = default)
     {
-        await using var connection = new SqlConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
         try
@@ -43,8 +45,7 @@ public sealed class SqlVerificationResultStore : IVerificationResultStore, IRevi
     public async Task<IReadOnlyList<SignatureCaseRecord>> GetReviewQueueAsync(DateTimeOffset? fromUtc = null, DateTimeOffset? toUtc = null, CancellationToken cancellationToken = default)
     {
         var results = new List<SignatureCaseRecord>();
-        await using var connection = new SqlConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
 
         await using var command = connection.CreateCommand();
         command.CommandText = """
@@ -101,8 +102,7 @@ ORDER BY EventUtc DESC, DocumentName, SignatureId;
 
     public async Task SaveReviewerOutcomeAsync(ReviewerOutcomeRecord outcome, CancellationToken cancellationToken = default)
     {
-        await using var connection = new SqlConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
         try
@@ -147,8 +147,7 @@ VALUES
     public async Task<IReadOnlyList<ReviewerOutcomeRecord>> GetReviewerOutcomesAsync(DateTimeOffset? fromUtc = null, DateTimeOffset? toUtc = null, CancellationToken cancellationToken = default)
     {
         var outcomes = new List<ReviewerOutcomeRecord>();
-        await using var connection = new SqlConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
 
         await using var command = connection.CreateCommand();
         command.CommandText = """

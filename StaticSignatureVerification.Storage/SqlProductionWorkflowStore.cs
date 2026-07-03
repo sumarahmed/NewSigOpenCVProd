@@ -378,102 +378,165 @@ INSERT INTO ssv.PurgeRun(Actor) VALUES(@Actor);
 SELECT CONVERT(bigint, SCOPE_IDENTITY());
 """, command => AddString(command, "@Actor", actor), cancellationToken).ConfigureAwait(false));
 
-        var policies = await LoadRetentionPoliciesAsync(connection, cancellationToken).ConfigureAwait(false);
-        var candidates = new List<PurgeCandidate>();
-        await AddStorageObjectCandidatesAsync(connection, candidates, nowUtc, policies, cancellationToken).ConfigureAwait(false);
-        await AddVerificationDocumentCandidatesAsync(connection, candidates, nowUtc, policies, cancellationToken).ConfigureAwait(false);
-        if (await GetSystemSettingAsync(connection, "DatabaseBlobPurgeEnabled", cancellationToken).ConfigureAwait(false) != "false")
+        try
         {
-            await AddDbBlobCandidatesAsync(connection, candidates, "DocumentBlob", "ssv.DocumentBlob", "DocumentBlobId", "DocumentResultId", nowUtc, policies, cancellationToken).ConfigureAwait(false);
-            await AddDbBlobCandidatesAsync(connection, candidates, "DebugArtifactBlob", "ssv.DebugArtifactBlob", "DebugArtifactBlobId", "DocumentResultId", nowUtc, policies, cancellationToken).ConfigureAwait(false);
-            await AddDbBlobCandidatesAsync(connection, candidates, "ReportBlob", "ssv.ReportBlob", "ReportBlobId", "ReportName", nowUtc, policies, cancellationToken).ConfigureAwait(false);
-        }
-
-        var purged = 0;
-        string? error = null;
-        foreach (var candidate in candidates)
-        {
-            string status;
-            string message;
-            try
+            var policies = await LoadRetentionPoliciesAsync(connection, cancellationToken).ConfigureAwait(false);
+            var candidates = new List<PurgeCandidate>();
+            await AddStorageObjectCandidatesAsync(connection, candidates, nowUtc, policies, cancellationToken).ConfigureAwait(false);
+            await AddVerificationDocumentCandidatesAsync(connection, candidates, nowUtc, policies, cancellationToken).ConfigureAwait(false);
+            if (await GetSystemSettingAsync(connection, "DatabaseBlobPurgeEnabled", cancellationToken).ConfigureAwait(false) != "false")
             {
-                if (dryRun)
-                {
-                    // Dry run must not mutate anything - neither the filesystem nor the database -
-                    // so operators can safely preview a purge before committing to it.
-                    status = "WouldPurge";
-                    message = candidate.Source switch
-                    {
-                        "VerificationDocument" => "Dry run: document and cascaded case/audit metadata would be purged.",
-                        _ when candidate.IsFilesystem => deleteFiles
-                            ? "Dry run: file and metadata would be purged."
-                            : "Dry run: metadata would be purged (file deletion disabled).",
-                        _ => "Dry run: database blob would be purged."
-                    };
-                }
-                else
-                {
-                    status = "Purged";
-                    message = candidate.Source switch
-                    {
-                        "VerificationDocument" => "Document and cascaded case/audit metadata purged.",
-                        _ when candidate.IsFilesystem => "Metadata purged.",
-                        _ => "Database blob purged."
-                    };
-                    if (candidate.IsFilesystem && deleteFiles && !string.IsNullOrWhiteSpace(candidate.Uri) && File.Exists(candidate.Uri))
-                    {
-                        File.Delete(candidate.Uri);
-                        message = "File and metadata purged.";
-                    }
-
-                    await NonQueryAsync(connection, null, candidate.DeleteSql, command =>
-                    {
-                        if (candidate.StringKey is not null)
-                        {
-                            AddString(command, "@Id", candidate.StringKey);
-                        }
-                        else
-                        {
-                            AddLong(command, "@Id", candidate.Id);
-                        }
-                    }, cancellationToken).ConfigureAwait(false);
-                    purged++;
-                }
-            }
-            catch (Exception ex)
-            {
-                status = "Failed";
-                message = ex.Message;
-                error ??= ex.Message;
+                await AddDbBlobCandidatesAsync(connection, candidates, "DocumentBlob", "ssv.DocumentBlob", "DocumentBlobId", "DocumentResultId", nowUtc, policies, cancellationToken).ConfigureAwait(false);
+                await AddDbBlobCandidatesAsync(connection, candidates, "DebugArtifactBlob", "ssv.DebugArtifactBlob", "DebugArtifactBlobId", "DocumentResultId", nowUtc, policies, cancellationToken).ConfigureAwait(false);
+                await AddDbBlobCandidatesAsync(connection, candidates, "ReportBlob", "ssv.ReportBlob", "ReportBlobId", "ReportName", nowUtc, policies, cancellationToken).ConfigureAwait(false);
             }
 
-            await NonQueryAsync(connection, null, """
+            var purged = 0;
+            string? error = null;
+            foreach (var candidate in candidates)
+            {
+                async Task InsertPurgeRunItemAsync(SqlTransaction? tx, string statusValue, string messageValue) =>
+                    await NonQueryAsync(connection, tx, """
 INSERT INTO ssv.PurgeRunItem(PurgeRunId, StorageObjectId, EntityType, EntityId, Action, Status, Message)
 VALUES(@PurgeRunId, @StorageObjectId, @EntityType, @EntityId, N'Purge', @Status, @Message);
 """, command =>
+                    {
+                        AddLong(command, "@PurgeRunId", purgeRunId);
+                        AddLong(command, "@StorageObjectId", candidate.Source == "StorageObject" ? candidate.Id : null);
+                        AddString(command, "@EntityType", candidate.EntityType);
+                        AddString(command, "@EntityId", candidate.EntityId);
+                        AddString(command, "@Status", statusValue);
+                        AddString(command, "@Message", messageValue);
+                    }, cancellationToken).ConfigureAwait(false);
+
+                SqlTransaction? transaction = null;
+                try
+                {
+                    string status;
+                    string message;
+                    if (dryRun)
+                    {
+                        // Dry run must not mutate anything - neither the filesystem nor the database -
+                        // so operators can safely preview a purge before committing to it.
+                        status = "WouldPurge";
+                        message = candidate.Source switch
+                        {
+                            "VerificationDocument" => "Dry run: document and cascaded case/audit metadata would be purged.",
+                            _ when candidate.IsFilesystem => deleteFiles
+                                ? "Dry run: file and metadata would be purged."
+                                : "Dry run: metadata would be purged (file deletion disabled).",
+                            _ => "Dry run: database blob would be purged."
+                        };
+                    }
+                    else
+                    {
+                        status = "Purged";
+                        message = candidate.Source switch
+                        {
+                            "VerificationDocument" => "Document and cascaded case/audit metadata purged.",
+                            _ when candidate.IsFilesystem => "Metadata purged.",
+                            _ => "Database blob purged."
+                        };
+
+                        // The metadata delete and its audit row commit or roll back together, so a
+                        // crash between the two can never leave a purged row with no audit trail.
+                        transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+                        await NonQueryAsync(connection, transaction, candidate.DeleteSql, command =>
+                        {
+                            if (candidate.StringKey is not null)
+                            {
+                                AddString(command, "@Id", candidate.StringKey);
+                            }
+                            else
+                            {
+                                AddLong(command, "@Id", candidate.Id);
+                            }
+                        }, cancellationToken).ConfigureAwait(false);
+                        purged++;
+
+                        // File deletion is best-effort, deliberately not part of the SQL transaction
+                        // (filesystem operations can't participate in one), and only attempted after
+                        // the metadata delete has succeeded. A failure here leaves a harmless orphaned
+                        // file rather than a dangling database reference to a file that no longer exists.
+                        if (candidate.IsFilesystem && deleteFiles && !string.IsNullOrWhiteSpace(candidate.Uri))
+                        {
+                            try
+                            {
+                                if (File.Exists(candidate.Uri))
+                                {
+                                    File.Delete(candidate.Uri);
+                                    message = "File and metadata purged.";
+                                }
+                            }
+                            catch (Exception fileEx)
+                            {
+                                message = $"Metadata purged; file delete failed: {fileEx.Message}";
+                            }
+                        }
+                    }
+
+                    await InsertPurgeRunItemAsync(transaction, status, message).ConfigureAwait(false);
+                    if (transaction is not null)
+                    {
+                        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (transaction is not null)
+                    {
+                        await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                    }
+
+                    error ??= ex.Message;
+                    // Whatever this candidate was doing inside the (now rolled-back) transaction
+                    // never happened, so the failure record must not be part of it.
+                    await InsertPurgeRunItemAsync(null, "Failed", ex.Message).ConfigureAwait(false);
+                }
+                finally
+                {
+                    if (transaction is not null)
+                    {
+                        await transaction.DisposeAsync().ConfigureAwait(false);
+                    }
+                }
+            }
+
+            var runStatus = dryRun
+                ? (error is null ? "CompletedDryRun" : "CompletedDryRunWithErrors")
+                : (error is null ? "Completed" : "CompletedWithErrors");
+            await NonQueryAsync(connection, null, "UPDATE ssv.PurgeRun SET FinishedUtc = sysutcdatetime(), Status = @Status, CandidateCount = @CandidateCount, PurgedCount = @PurgedCount, ErrorMessage = @ErrorMessage WHERE PurgeRunId = @PurgeRunId;", command =>
             {
+                AddString(command, "@Status", runStatus);
+                AddInt(command, "@CandidateCount", candidates.Count);
+                AddInt(command, "@PurgedCount", purged);
+                AddString(command, "@ErrorMessage", error);
                 AddLong(command, "@PurgeRunId", purgeRunId);
-                AddLong(command, "@StorageObjectId", candidate.Source == "StorageObject" ? candidate.Id : null);
-                AddString(command, "@EntityType", candidate.EntityType);
-                AddString(command, "@EntityId", candidate.EntityId);
-                AddString(command, "@Status", status);
-                AddString(command, "@Message", message);
             }, cancellationToken).ConfigureAwait(false);
+
+            return new PurgeRunResultRecord(purgeRunId, candidates.Count, purged, runStatus, error);
         }
-
-        var runStatus = dryRun
-            ? (error is null ? "CompletedDryRun" : "CompletedDryRunWithErrors")
-            : (error is null ? "Completed" : "CompletedWithErrors");
-        await NonQueryAsync(connection, null, "UPDATE ssv.PurgeRun SET FinishedUtc = sysutcdatetime(), Status = @Status, CandidateCount = @CandidateCount, PurgedCount = @PurgedCount, ErrorMessage = @ErrorMessage WHERE PurgeRunId = @PurgeRunId;", command =>
+        catch (Exception ex)
         {
-            AddString(command, "@Status", runStatus);
-            AddInt(command, "@CandidateCount", candidates.Count);
-            AddInt(command, "@PurgedCount", purged);
-            AddString(command, "@ErrorMessage", error);
-            AddLong(command, "@PurgeRunId", purgeRunId);
-        }, cancellationToken).ConfigureAwait(false);
+            // Best-effort: ensure the run row never lingers at 'Running' forever if something
+            // outside the per-candidate loop (e.g. a candidate-gathering query) throws. If even
+            // this fails (e.g. the connection itself is gone), there is nothing more we can do -
+            // the row will remain 'Running' until an operator investigates.
+            try
+            {
+                await NonQueryAsync(connection, null, "UPDATE ssv.PurgeRun SET FinishedUtc = sysutcdatetime(), Status = N'Interrupted', ErrorMessage = @ErrorMessage WHERE PurgeRunId = @PurgeRunId;", command =>
+                {
+                    AddString(command, "@ErrorMessage", ex.Message);
+                    AddLong(command, "@PurgeRunId", purgeRunId);
+                }, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Ignored - see comment above.
+            }
 
-        return new PurgeRunResultRecord(purgeRunId, candidates.Count, purged, runStatus, error);
+            throw;
+        }
     }
 
     public async Task<long> RegisterStorageObjectAsync(string objectType, string? entityType, string? entityId, string storageUri, DateTimeOffset createdUtc, DateTimeOffset? retainUntilUtc, long? sizeBytes = null, CancellationToken cancellationToken = default)
@@ -586,6 +649,13 @@ WHERE (RetainUntilUtc IS NOT NULL AND RetainUntilUtc <= @NowUtc)
         }
     }
 
+    private static readonly HashSet<(string TableName, string IdColumn, string EntityIdColumn)> AllowedDbBlobPurgeTargets = new()
+    {
+        ("ssv.DocumentBlob", "DocumentBlobId", "DocumentResultId"),
+        ("ssv.DebugArtifactBlob", "DebugArtifactBlobId", "DocumentResultId"),
+        ("ssv.ReportBlob", "ReportBlobId", "ReportName"),
+    };
+
     private static async Task AddDbBlobCandidatesAsync(
         SqlConnection connection,
         List<PurgeCandidate> candidates,
@@ -597,6 +667,14 @@ WHERE (RetainUntilUtc IS NOT NULL AND RetainUntilUtc <= @NowUtc)
         IReadOnlyDictionary<string, int> policies,
         CancellationToken cancellationToken)
     {
+        // tableName/idColumn/entityIdColumn are interpolated into SQL text below (identifiers
+        // can't be parameterized via SqlParameter) - only ever call this with a hardcoded,
+        // allow-listed combination, never with caller/database-derived values.
+        if (!AllowedDbBlobPurgeTargets.Contains((tableName, idColumn, entityIdColumn)))
+        {
+            throw new InvalidOperationException($"'{tableName}' is not an allow-listed DB-native blob purge target.");
+        }
+
         policies.TryGetValue(targetObjectType, out var retentionDays);
         var cutoffUtc = retentionDays > 0 ? nowUtc.AddDays(-retentionDays) : (DateTimeOffset?)null;
         await using var command = connection.CreateCommand();
@@ -698,12 +776,8 @@ SELECT CONVERT(bigint, SCOPE_IDENTITY());
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<SqlConnection> OpenAsync(CancellationToken cancellationToken)
-    {
-        var connection = new SqlConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        return connection;
-    }
+    private async Task<SqlConnection> OpenAsync(CancellationToken cancellationToken) =>
+        await TransientSqlRetry.OpenConnectionAsync(_connectionString, cancellationToken).ConfigureAwait(false);
 
     private static async Task<object?> ScalarAsync(SqlConnection connection, SqlTransaction? transaction, string sql, Action<SqlCommand> parameters, CancellationToken cancellationToken)
     {

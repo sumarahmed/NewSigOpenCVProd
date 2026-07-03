@@ -107,9 +107,9 @@ public sealed class GhostscriptCommandLinePdfRenderer : IPdfPageRenderer
         {
             throw;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            throw new SignatureVerificationException("PDF_RENDERING_FAILED", "The PDF could not be rendered. It may be encrypted, corrupt, or unreadable.");
+            throw new SignatureVerificationException("PDF_RENDERING_FAILED", "The PDF could not be rendered. It may be encrypted, corrupt, or unreadable.", ex);
         }
         finally
         {
@@ -120,11 +120,38 @@ public sealed class GhostscriptCommandLinePdfRenderer : IPdfPageRenderer
         }
     }
 
+    private static readonly TimeSpan StaleWorkFolderAge = TimeSpan.FromHours(24);
+
     private static string CreateTempRoot(string? configured)
     {
         var root = string.IsNullOrWhiteSpace(configured) ? Path.GetTempPath() : Path.GetFullPath(configured);
         Directory.CreateDirectory(root);
+        SweepStaleWorkFolders(root);
         return root;
+    }
+
+    private static void SweepStaleWorkFolders(string root)
+    {
+        // Best-effort, self-amortizing cleanup: KeepTempFiles intentionally skips deleting a
+        // render's own work folder when debug images are requested (so an engineer can inspect
+        // Ghostscript's raw output), which otherwise accumulates indefinitely. Every render sweeps
+        // its own root for old work folders instead of requiring a separate scheduled job. Must
+        // never throw or block the render this call is part of.
+        try
+        {
+            var cutoffUtc = DateTime.UtcNow - StaleWorkFolderAge;
+            foreach (var directory in Directory.EnumerateDirectories(root, "ssv-*"))
+            {
+                if (Directory.GetLastWriteTimeUtc(directory) < cutoffUtc)
+                {
+                    TryDelete(directory);
+                }
+            }
+        }
+        catch
+        {
+            // Best-effort cleanup only.
+        }
     }
 
     private static string SafeGhostscriptMessage(string stderr)

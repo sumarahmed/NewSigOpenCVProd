@@ -20,11 +20,20 @@ public sealed record ReferenceQualityResult(
 
 public static class ReferenceQualityAnalyzer
 {
+    private const long MaxReferenceImageBytes = 15L * 1024 * 1024;
+    private const long MaxDecodedImagePixels = 100_000_000;
+
     public static ReferenceQualityResult Analyze(string imagePath)
     {
         if (!File.Exists(imagePath))
         {
             throw new FileNotFoundException("Reference image was not found.", imagePath);
+        }
+
+        var fileLength = new FileInfo(imagePath).Length;
+        if (fileLength > MaxReferenceImageBytes)
+        {
+            throw new InvalidOperationException($"Reference image ({fileLength} bytes) exceeds the maximum allowed size of {MaxReferenceImageBytes} bytes.");
         }
 
         using var image = Cv2.ImRead(imagePath, ImreadModes.Grayscale);
@@ -33,18 +42,33 @@ public static class ReferenceQualityAnalyzer
             throw new InvalidOperationException("Reference image could not be decoded.");
         }
 
+        EnsureWithinPixelLimit(image);
         return Analyze(image);
     }
 
     public static ReferenceQualityResult Analyze(byte[] imageBytes)
     {
+        if (imageBytes.LongLength > MaxReferenceImageBytes)
+        {
+            throw new InvalidOperationException($"Reference image ({imageBytes.LongLength} bytes) exceeds the maximum allowed size of {MaxReferenceImageBytes} bytes.");
+        }
+
         using var image = Cv2.ImDecode(imageBytes, ImreadModes.Grayscale);
         if (image.Empty())
         {
             throw new InvalidOperationException("Reference image could not be decoded.");
         }
 
+        EnsureWithinPixelLimit(image);
         return Analyze(image);
+    }
+
+    private static void EnsureWithinPixelLimit(Mat image)
+    {
+        if ((long)image.Width * image.Height > MaxDecodedImagePixels)
+        {
+            throw new InvalidOperationException($"Reference image dimensions ({image.Width}x{image.Height}) exceed the maximum allowed pixel count of {MaxDecodedImagePixels}.");
+        }
     }
 
     public static string Sha256Hex(byte[] bytes) =>
