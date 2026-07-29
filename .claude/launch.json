@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "signature-verification-api",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "StaticSignatureVerification.Api", "-c", "Release", "--", "--urls", "http://127.0.0.1:5117"],
+      "port": 5117
+    }
+  ]
+}
